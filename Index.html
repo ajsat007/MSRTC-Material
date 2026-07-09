@@ -1409,16 +1409,6 @@ function applyPrefillToCards() {
       if (extraInput) extraInput.value = m.extra;
       MATERIAL_STATE[idx].extra = m.extra;
     }
-
-    if (m.locallyPurchased === 'होय' || m.locallyPurchased === 'नाही') {
-      setLocallyPurchased(idx, m.locallyPurchased);
-    }
-    if (m.locallyPurchased === 'होय' && m.locallyPurchasedQty !== '') {
-      var lpQtyInput = document.getElementById('lpQty-' + idx);
-      if (lpQtyInput) lpQtyInput.value = m.locallyPurchasedQty;
-      MATERIAL_STATE[idx].locallyPurchasedQty = m.locallyPurchasedQty;
-    }
-
     updateCardCompletion(idx);
   }
 }
@@ -1556,25 +1546,6 @@ function renderMaterialCards() {
           '</div>' +
         '</div>' +
 
-        '<div class="mc-row">' +
-          '<div class="mc-row-label">स्वतः स्थानिक पातळीवर खरेदी केले का? <span class="req">*</span></div>' +
-          '<div class="mc-row-control">' +
-            '<div class="suff-toggle">' +
-              '<button type="button" class="suff-btn yes" id="lpYes-' + idx + '">होय</button>' +
-              '<button type="button" class="suff-btn no" id="lpNo-' + idx + '">नाही</button>' +
-            '</div>' +
-          '</div>' +
-        '</div>' +
-
-        '<div class="mc-row extra-row hidden" id="lpQtyWrap-' + idx + '">' +
-          '<div class="mc-row-label">स्थानिक खरेदी केलेली संख्या <span class="req">*</span></div>' +
-          '<div class="mc-row-control">' +
-            '<div class="qty-input-compact" style="width:128px">' +
-              '<input type="number" inputmode="numeric" min="1" step="1" placeholder="संख्या" id="lpQty-' + idx + '">' +
-              '<div class="qty-unit-suffix">' + escapeHtml(mat.unit) + '</div>' +
-            '</div>' +
-          '</div>' +
-        '</div>' +
 
       '</div>' +
 
@@ -1606,14 +1577,6 @@ function renderMaterialCards() {
       MATERIAL_STATE[idx].extra = val;
       updateCardCompletion(idx);
     });
-
-    document.getElementById('lpYes-' + idx).addEventListener('click', function () { setLocallyPurchased(idx, 'होय'); });
-    document.getElementById('lpNo-' + idx).addEventListener('click', function () { setLocallyPurchased(idx, 'नाही'); });
-
-    document.getElementById('lpQty-' + idx).addEventListener('input', function () {
-      MATERIAL_STATE[idx].locallyPurchasedQty = this.value;
-      updateCardCompletion(idx);
-    });
   });
 
   renderSkippedNote(skippedCount);
@@ -1643,29 +1606,6 @@ function setSufficient(idx, value) {
   updateCardCompletion(idx);
 }
 
-function setLocallyPurchased(idx, value) {
-  MATERIAL_STATE[idx].locallyPurchased = value;
-  var yesBtn = document.getElementById('lpYes-' + idx);
-  var noBtn = document.getElementById('lpNo-' + idx);
-  var qtyWrap = document.getElementById('lpQtyWrap-' + idx);
-  var qtyInput = document.getElementById('lpQty-' + idx);
-
-  if (value === 'होय') {
-    yesBtn.classList.add('active');
-    noBtn.classList.remove('active');
-    qtyWrap.classList.remove('hidden');
-    qtyInput.disabled = false;
-  } else {
-    noBtn.classList.add('active');
-    yesBtn.classList.remove('active');
-    qtyWrap.classList.add('hidden');
-    qtyInput.disabled = true;
-    qtyInput.value = '';
-    MATERIAL_STATE[idx].locallyPurchasedQty = '';
-  }
-  updateCardCompletion(idx);
-}
-
 function isMaterialComplete(idx) {
   var m = MATERIAL_STATE[idx];
   if (!m.applicable) return true;
@@ -1674,11 +1614,7 @@ function isMaterialComplete(idx) {
   if (m.sufficient === 'नाही') {
     if (m.extra === '' || m.extra === null || isNaN(Number(m.extra)) || Number(m.extra) <= 0) return false;
     var maxAllowed = getMaxAllowedExtra(idx);
-    if (maxAllowed > 0 && Number(m.extra) > maxAllowed) return false;
-  }
-  if (m.locallyPurchased !== 'होय' && m.locallyPurchased !== 'नाही') return false;
-  if (m.locallyPurchased === 'होय') {
-    if (m.locallyPurchasedQty === '' || m.locallyPurchasedQty === null || isNaN(Number(m.locallyPurchasedQty)) || Number(m.locallyPurchasedQty) <= 0) return false;
+    if (maxAllowed > 0 && Number(m.extra) > maxAllowed) return false; // ⬅️ 40% कॅप पडताळणी
   }
   return true;
 }
