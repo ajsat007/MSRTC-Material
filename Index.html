@@ -1,0 +1,1980 @@
+<!DOCTYPE html>
+<html lang="mr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>MSRTC Mechanized Cleaning — Material Status</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Devanagari:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  /* ============================== डिझाईन टोकन्स ============================== */
+  :root{
+    --navy:#002B6B;
+    --navy-dark:#001A40;
+    --navy-light:#0A3D8F;
+    --gold:#FFC400;
+    --gold-dark:#E0A800;
+    --white:#FFFFFF;
+    --gray-50:#F7F8FA;
+    --gray-100:#EEF1F5;
+    --gray-200:#E1E5EB;
+    --gray-400:#9AA4B2;
+    --gray-600:#5C6675;
+    --gray-800:#2A323D;
+    --green-bg:#E8F5E9;
+    --green-text:#2E7D32;
+    --green-border:#A5D6A7;
+    --red-bg:#FFEBEE;
+    --red-text:#C62828;
+    --red-border:#FFCDD2;
+    --row-complete:#EAF7EC;
+    --radius-sm:8px;
+    --radius-md:12px;
+    --radius-lg:18px;
+    --shadow-sm:0 1px 3px rgba(0,43,107,0.08);
+    --shadow-md:0 4px 14px rgba(0,43,107,0.12);
+    --shadow-lg:0 10px 30px rgba(0,43,107,0.18);
+  }
+
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{margin:0; padding:0;}
+  body{
+    font-family:'Noto Sans Devanagari','Inter',sans-serif;
+    background:var(--gray-50);
+    color:var(--gray-800);
+    min-height:100vh;
+    -webkit-font-smoothing:antialiased;
+  }
+  #app{
+    max-width:480px;
+    margin:0 auto;
+    min-height:100vh;
+    background:var(--white);
+    display:flex;
+    flex-direction:column;
+    position:relative;
+    box-shadow:0 0 40px rgba(0,0,0,0.06);
+  }
+
+  /* ============================== टॉप बार ============================== */
+  .topbar{
+    background:linear-gradient(135deg, var(--navy) 0%, var(--navy-dark) 100%);
+    color:var(--white);
+    padding:14px 18px 16px;
+    display:flex;
+    align-items:center;
+    gap:12px;
+    position:sticky;
+    top:0;
+    z-index:50;
+    box-shadow:var(--shadow-md);
+  }
+  .topbar-logo{
+    width:42px; height:42px;
+    background:var(--gold);
+    border-radius:10px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    font-weight:800;
+    font-size:15px;
+    color:var(--navy-dark);
+    flex-shrink:0;
+    box-shadow:0 2px 6px rgba(0,0,0,0.2);
+    font-family:'Inter',sans-serif;
+    letter-spacing:-0.5px;
+  }
+  .topbar-text{display:flex; flex-direction:column; gap:1px; min-width:0;}
+  .topbar-title{font-size:15.5px; font-weight:700; line-height:1.25; letter-spacing:0.1px;}
+  .topbar-sub{font-size:12.5px; color:var(--gold); font-weight:600; opacity:0.95;}
+  .topbar-meta{
+    margin-left:auto;
+    text-align:right;
+    font-size:11.5px;
+    color:rgba(255,255,255,0.75);
+    line-height:1.3;
+    flex-shrink:0;
+  }
+  .topbar-meta .station-name{
+    display:block;
+    color:var(--white);
+    font-weight:600;
+    font-size:13px;
+  }
+
+  /* ============================== स्क्रीन कंटेनर ============================== */
+  .screen{
+    flex:1;
+    display:flex;
+    flex-direction:column;
+    animation:fadeIn 0.25s ease;
+  }
+  @keyframes fadeIn{ from{opacity:0; transform:translateY(6px);} to{opacity:1; transform:translateY(0);} }
+  .screen-body{ padding:18px; flex:1; }
+  .hidden{ display:none !important; }
+
+  /* ============================== कार्ड / फॉर्म ============================== */
+  .card{
+    background:var(--white);
+    border:1px solid var(--gray-200);
+    border-radius:var(--radius-lg);
+    padding:20px 18px;
+    box-shadow:var(--shadow-sm);
+  }
+  .form-group{ margin-bottom:18px; }
+  .form-group:last-child{ margin-bottom:0; }
+  .form-label{
+    display:flex;
+    align-items:center;
+    gap:6px;
+    font-size:13.5px;
+    font-weight:700;
+    color:var(--navy);
+    margin-bottom:7px;
+  }
+  .form-label .req{ color:var(--red-text); font-weight:700; }
+  .form-hint{
+    font-size:11.5px;
+    color:var(--gray-600);
+    margin-top:5px;
+    line-height:1.4;
+  }
+  select, input[type="text"], input[type="number"], input[type="date"]{
+    width:100%;
+    min-height:48px;
+    padding:11px 14px;
+    font-size:15px;
+    font-family:inherit;
+    border:1.5px solid var(--gray-200);
+    border-radius:var(--radius-md);
+    background:var(--white);
+    color:var(--gray-800);
+    transition:border-color 0.15s, box-shadow 0.15s;
+    appearance:none;
+    -webkit-appearance:none;
+  }
+  select{
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='14' height='9' viewBox='0 0 14 9'><path d='M1 1L7 7L13 1' stroke='%23002B6B' stroke-width='2' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+    background-repeat:no-repeat;
+    background-position:right 14px center;
+    padding-right:38px;
+  }
+  select:disabled, input:disabled{
+    background:var(--gray-50);
+    color:var(--gray-400);
+    border-color:var(--gray-200);
+  }
+  select:focus, input:focus{
+    outline:none;
+    border-color:var(--navy-light);
+    box-shadow:0 0 0 3px rgba(10,61,143,0.12);
+  }
+  .readonly-field{
+    width:100%;
+    min-height:48px;
+    padding:11px 14px;
+    font-size:15px;
+    border:1.5px solid var(--gray-200);
+    border-radius:var(--radius-md);
+    background:var(--gray-50);
+    color:var(--navy);
+    font-weight:600;
+    display:flex;
+    align-items:center;
+    gap:8px;
+  }
+  .readonly-field .placeholder-text{ color:var(--gray-400); font-weight:400; }
+
+  /* ============================== बटणे ============================== */
+  .btn{
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    gap:8px;
+    width:100%;
+    min-height:50px;
+    border:none;
+    border-radius:var(--radius-md);
+    font-family:inherit;
+    font-size:16px;
+    font-weight:700;
+    cursor:pointer;
+    transition:transform 0.1s, box-shadow 0.15s, opacity 0.15s;
+    -webkit-user-select:none;
+    user-select:none;
+  }
+  .btn:active{ transform:scale(0.98); }
+  .btn-primary{
+    background:linear-gradient(135deg, var(--navy-light), var(--navy));
+    color:var(--white);
+    box-shadow:0 4px 12px rgba(0,43,107,0.28);
+  }
+  .btn-primary:disabled{
+    background:var(--gray-200);
+    color:var(--gray-400);
+    box-shadow:none;
+    cursor:not-allowed;
+  }
+  .btn-gold{
+    background:linear-gradient(135deg, var(--gold), var(--gold-dark));
+    color:var(--navy-dark);
+    box-shadow:0 4px 12px rgba(224,168,0,0.35);
+  }
+  .btn-gold:disabled{
+    background:var(--gray-200);
+    color:var(--gray-400);
+    box-shadow:none;
+    cursor:not-allowed;
+  }
+  .btn-outline{
+    background:var(--white);
+    color:var(--navy);
+    border:1.5px solid var(--navy);
+  }
+  .btn-ghost{
+    background:transparent;
+    color:var(--gray-600);
+    font-weight:600;
+  }
+
+  /* ============================== प्रोग्रेस बार ============================== */
+  .progress-wrap{
+    padding:12px 18px 14px;
+    background:var(--white);
+    border-bottom:1px solid var(--gray-100);
+    position:sticky;
+    top:74px;
+    z-index:40;
+  }
+  .progress-label{
+    display:flex;
+    justify-content:space-between;
+    align-items:baseline;
+    margin-bottom:7px;
+  }
+  .progress-label .count{
+    font-size:14.5px;
+    font-weight:800;
+    color:var(--navy);
+  }
+  .progress-label .count .total{ color:var(--gray-600); font-weight:600; }
+  .progress-label .pct{
+    font-size:12.5px;
+    font-weight:700;
+    color:var(--gold-dark);
+  }
+  .progress-track{
+    height:9px;
+    background:var(--gray-200);
+    border-radius:6px;
+    overflow:hidden;
+  }
+  .progress-fill{
+    height:100%;
+    background:linear-gradient(90deg, var(--gold-dark), var(--gold));
+    border-radius:6px;
+    transition:width 0.35s ease;
+  }
+  .station-context{
+    display:flex;
+    flex-direction:column;
+    gap:1px;
+    margin-bottom:10px;
+  }
+  .station-context .sc-station{
+    font-size:15px;
+    font-weight:700;
+    color:var(--gray-800);
+  }
+  .station-context .sc-pm{
+    font-size:12.5px;
+    color:var(--gray-600);
+  }
+  .station-context .sc-pm b{ color:var(--navy); }
+
+  /* ============================== मटेरियल कार्ड्स (टेबल ऐवजी मोबाईल-फ्रेंडली कार्ड्स) ============================== */
+  .material-list{ padding:6px 14px 110px; }
+  .material-card{
+    background:var(--white);
+    border:1.5px solid var(--gray-200);
+    border-radius:var(--radius-lg);
+    padding:14px 14px 16px;
+    margin-bottom:12px;
+    transition:background 0.25s, border-color 0.25s;
+  }
+  .material-card.complete{
+    background:var(--row-complete);
+    border-color:var(--green-border);
+  }
+  .mc-head{
+    display:flex;
+    align-items:flex-start;
+    gap:10px;
+    margin-bottom:12px;
+  }
+  .mc-num{
+    width:26px; height:26px;
+    border-radius:50%;
+    background:var(--navy);
+    color:var(--white);
+    font-size:12px;
+    font-weight:700;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    flex-shrink:0;
+    font-family:'Inter',sans-serif;
+  }
+  .material-card.complete .mc-num{ background:var(--green-text); }
+  .mc-titles{ flex:1; min-width:0; }
+  .mc-name{
+    font-size:15px;
+    font-weight:700;
+    color:var(--gray-800);
+    line-height:1.3;
+  }
+  .mc-unit{
+    font-size:11.5px;
+    color:var(--gray-600);
+    margin-top:2px;
+  }
+  .mc-unit b{ color:var(--navy); }
+  .mc-status-badge{
+    flex-shrink:0;
+    font-size:10.5px;
+    font-weight:700;
+    padding:4px 9px;
+    border-radius:20px;
+    white-space:nowrap;
+  }
+  .badge-pending{ background:var(--gray-100); color:var(--gray-600); }
+  .badge-complete{ background:var(--green-bg); color:var(--green-text); }
+
+  /* ============================== मटेरियल प्रश्न ग्रिड (लेबल डावीकडे | कंट्रोल उजवीकडे) ============================== */
+  .mc-grid{
+    display:flex;
+    flex-direction:column;
+    gap:0;
+    border-top:1px solid var(--gray-100);
+  }
+  .mc-row{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:10px;
+    padding:11px 2px;
+    border-bottom:1px solid var(--gray-100);
+  }
+  .mc-row:last-child{ border-bottom:none; }
+  .mc-row-label{
+    font-size:12.5px;
+    font-weight:600;
+    color:var(--gray-600);
+    line-height:1.35;
+    flex:1 1 auto;
+    min-width:0;
+    padding-right:6px;
+  }
+  .mc-row-label .req{ color:var(--red-text); }
+  .mc-row-control{
+    flex:0 0 auto;
+    display:flex;
+    align-items:center;
+    justify-content:flex-end;
+  }
+
+  /* दिलेली संख्या — फक्त वाचनीय मूल्य */
+  .mc-given-val{
+    font-size:16px;
+    font-weight:800;
+    color:var(--navy);
+    background:var(--gray-50);
+    border:1px solid var(--gray-200);
+    border-radius:var(--radius-sm);
+    padding:7px 14px;
+    min-width:56px;
+    text-align:center;
+  }
+
+  /* प्राप्त संख्या — इनपुट बॉक्स (उजवीकडे, कॉम्पॅक्ट) */
+  .mc-row-control .qty-input-compact{
+    display:flex;
+    align-items:stretch;
+    width:128px;
+  }
+  .mc-row-control .qty-input-compact input{
+    width:100%;
+    min-height:42px;
+    padding:8px 10px;
+    text-align:center;
+    font-weight:700;
+    font-size:15px;
+    border-radius:var(--radius-sm) 0 0 var(--radius-sm);
+    border-right:none;
+  }
+  .mc-row-control .qty-unit-suffix{
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    padding:0 10px;
+    background:var(--gray-100);
+    border:1.5px solid var(--gray-200);
+    border-left:none;
+    border-radius:0 var(--radius-sm) var(--radius-sm) 0;
+    font-size:12px;
+    font-weight:700;
+    color:var(--navy);
+    min-width:38px;
+  }
+
+  /* होय/नाही टॉगल — डावीकडे जवळजवळ, उजवीकडे संकुचित */
+  .suff-toggle{
+    display:flex;
+    gap:8px;
+  }
+  .suff-btn{
+    min-width:64px;
+    min-height:42px;
+    padding:0 16px;
+    border-radius:var(--radius-sm);
+    border:1.5px solid var(--gray-200);
+    background:var(--white);
+    font-size:14px;
+    font-weight:700;
+    font-family:inherit;
+    color:var(--gray-600);
+    cursor:pointer;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    transition:all 0.15s;
+  }
+  .suff-btn.yes.active{
+    background:var(--green-bg);
+    color:var(--green-text);
+    border-color:var(--green-border);
+  }
+  .suff-btn.no.active{
+    background:var(--red-bg);
+    color:var(--red-text);
+    border-color:var(--red-border);
+  }
+  .suff-btn:active{ transform:scale(0.96); }
+
+  /* अतिरिक्त संख्या रो — फक्त नाही निवडल्यावर दिसते, placeholder मध्येच प्रश्न मजकूर */
+  .mc-row.extra-row{
+    animation:slideDown 0.2s ease;
+  }
+  @keyframes slideDown{ from{opacity:0; transform:translateY(-4px);} to{opacity:1; transform:translateY(0);} }
+  .mc-row.extra-row .qty-input-compact{ width:160px; }
+  .mc-row.extra-row input{ border-color:var(--red-border); }
+  .mc-row.extra-row input:focus{ border-color:var(--red-text); box-shadow:0 0 0 3px rgba(198,40,40,0.1); }
+  .mc-row.extra-row input::placeholder{
+    font-size:10.5px;
+    font-weight:600;
+    color:var(--red-text);
+    opacity:0.75;
+    white-space:normal;
+    line-height:1.1;
+  }
+
+  .mc-status-row{
+    padding-top:10px;
+    margin-top:2px;
+    display:flex;
+    justify-content:flex-end;
+  }
+
+
+  /* ============================== पूर्वीच्या नोंदी ============================== */
+  .past-entries-section{
+    margin:16px 0;
+    padding:0 4px;
+  }
+  .past-entries-header{
+    font-size:14px;
+    font-weight:700;
+    color:var(--gray-800);
+    margin-bottom:10px;
+  }
+  .past-entry-card{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    background:var(--white);
+    border:1px solid var(--gray-200);
+    border-radius:var(--radius-sm);
+    padding:10px 14px;
+    margin-bottom:8px;
+  }
+  .past-entry-date{
+    font-size:13px;
+    font-weight:600;
+    color:var(--gray-800);
+  }
+  .past-entry-meta{
+    font-size:11px;
+    color:var(--gray-600);
+    margin-top:2px;
+  }
+  .past-entry-actions{ display:flex; gap:6px; }
+  .past-entry-edit-btn, .past-entry-del-btn{
+    border:none;
+    border-radius:var(--radius-sm);
+    padding:6px 12px;
+    font-size:12px;
+    font-weight:600;
+    cursor:pointer;
+  }
+  .past-entry-edit-btn{ background:var(--blue-600); color:#fff; }
+  .past-entry-del-btn{ background:#EF5350; color:#fff; }
+  .past-entry-edit-btn:active, .past-entry-del-btn:active{ opacity:0.8; }
+  .past-entries-empty, .past-entries-loading{
+    font-size:12px;
+    color:var(--gray-600);
+    padding:8px 0;
+  }
+
+  /* ============================== खालची फिक्स्ड बार ============================== */
+  .bottom-bar{
+    position:sticky;
+    bottom:0;
+    background:var(--white);
+    border-top:1px solid var(--gray-200);
+    padding:14px 18px;
+    padding-bottom:calc(14px + env(safe-area-inset-bottom));
+    box-shadow:0 -4px 16px rgba(0,0,0,0.06);
+    z-index:45;
+  }
+  .bottom-bar-hint{
+    text-align:center;
+    font-size:11.5px;
+    color:var(--gray-600);
+    margin-top:8px;
+  }
+
+  /* ============================== मोडल (सारांश) ============================== */
+  .modal-overlay{
+    position:fixed;
+    inset:0;
+    background:rgba(0,26,64,0.55);
+    z-index:100;
+    display:flex;
+    align-items:flex-end;
+    justify-content:center;
+    backdrop-filter:blur(2px);
+  }
+  .modal-sheet{
+    background:var(--white);
+    width:100%;
+    max-width:480px;
+    max-height:88vh;
+    border-radius:22px 22px 0 0;
+    display:flex;
+    flex-direction:column;
+    animation:slideUp 0.28s cubic-bezier(.25,.8,.25,1);
+    overflow:hidden;
+  }
+  @keyframes slideUp{ from{transform:translateY(100%);} to{transform:translateY(0);} }
+  .modal-header{
+    background:linear-gradient(135deg, var(--navy) 0%, var(--navy-dark) 100%);
+    color:var(--white);
+    padding:18px 20px 16px;
+    flex-shrink:0;
+    position:relative;
+  }
+  .modal-handle{
+    width:36px; height:4px;
+    background:rgba(255,255,255,0.35);
+    border-radius:3px;
+    margin:0 auto 12px;
+  }
+  .modal-title{ font-size:17px; font-weight:800; }
+  .modal-sub{ font-size:12.5px; color:rgba(255,255,255,0.8); margin-top:3px; }
+
+  .kpi-row{
+    display:grid;
+    grid-template-columns:1fr 1fr 1fr;
+    gap:10px;
+    padding:16px 18px;
+    flex-shrink:0;
+  }
+  .kpi-card{
+    background:var(--gray-50);
+    border-radius:var(--radius-md);
+    padding:12px 8px;
+    text-align:center;
+    border:1px solid var(--gray-200);
+  }
+  .kpi-card .kpi-num{ font-size:21px; font-weight:800; color:var(--navy); line-height:1.1; }
+  .kpi-card .kpi-lbl{ font-size:10.5px; color:var(--gray-600); font-weight:600; margin-top:3px; line-height:1.25; }
+  .kpi-card.kpi-suff .kpi-num{ color:var(--green-text); }
+  .kpi-card.kpi-insuff .kpi-num{ color:var(--red-text); }
+
+  .modal-body{
+    flex:1;
+    overflow-y:auto;
+    padding:0 18px 14px;
+  }
+  .summary-table{ width:100%; border-collapse:collapse; font-size:12.5px; }
+  .summary-table thead th{
+    position:sticky; top:0;
+    background:var(--gray-100);
+    color:var(--navy);
+    font-weight:700;
+    padding:8px 6px;
+    text-align:center;
+    border-bottom:1.5px solid var(--gray-200);
+    font-size:11px;
+  }
+  .summary-table thead th:first-child{ text-align:right; }
+  .summary-table tbody td{
+    padding:8px 6px;
+    border-bottom:1px solid var(--gray-100);
+    text-align:center;
+    color:var(--gray-800);
+  }
+  .summary-table tbody td:first-child{ text-align:right; font-weight:600; }
+  .summary-table tbody tr.row-insufficient{ background:var(--red-bg); }
+  .summary-table tbody tr.row-insufficient td{ color:var(--red-text); }
+  .summary-table .pill{
+    display:inline-block;
+    font-size:10.5px;
+    font-weight:700;
+    padding:2px 8px;
+    border-radius:10px;
+  }
+  .pill-yes{ background:var(--green-bg); color:var(--green-text); }
+  .pill-no{ background:var(--red-bg); color:var(--red-text); }
+  .summary-table tfoot td{
+    padding:10px 6px;
+    font-weight:800;
+    color:var(--navy);
+    border-top:2px solid var(--gray-200);
+    text-align:center;
+  }
+  .summary-table tfoot td:first-child{ text-align:right; }
+
+
+  .mc-extra-cap-hint{
+    font-size:10px;
+    color:var(--gray-600);
+    margin-top:4px;
+    text-align:right;
+  }
+  .mc-extra-cap-hint.exceeded{
+    color:var(--red-text);
+    font-weight:700;
+  }
+  .modal-actions{
+    display:flex;
+    gap:10px;
+    padding:14px 18px;
+    padding-bottom:calc(14px + env(safe-area-inset-bottom));
+    border-top:1px solid var(--gray-100);
+    flex-shrink:0;
+  }
+  .modal-actions .btn-outline{ flex:1; }
+  .modal-actions .btn-gold{ flex:1.4; }
+
+.dup-warning {
+  margin: 0 18px 12px;
+  background: var(--red-bg);
+  border: 2px solid var(--red-border);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  font-size: 12.5px;
+  color: var(--red-text);
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+  /* ============================== यश स्क्रीन ============================== */
+  .success-wrap{
+    flex:1;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    padding:32px 24px;
+    text-align:center;
+  }
+  .success-icon{
+    width:84px; height:84px;
+    border-radius:50%;
+    background:var(--green-bg);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    margin-bottom:18px;
+    animation:popIn 0.4s cubic-bezier(.25,.8,.25,1.4);
+  }
+  @keyframes popIn{ from{transform:scale(0); opacity:0;} to{transform:scale(1); opacity:1;} }
+  .success-title{ font-size:19px; font-weight:800; color:var(--gray-800); margin-bottom:6px; }
+  .success-sub{ font-size:13.5px; color:var(--gray-600); margin-bottom:24px; }
+  .success-card{
+    width:100%;
+    background:var(--gray-50);
+    border:1px solid var(--gray-200);
+    border-radius:var(--radius-lg);
+    padding:18px;
+    margin-bottom:22px;
+    text-align:right;
+  }
+  .success-row{
+    display:flex;
+    justify-content:space-between;
+    padding:8px 0;
+    border-bottom:1px solid var(--gray-200);
+    font-size:13.5px;
+  }
+  .success-row:last-child{ border-bottom:none; }
+  .success-row .lbl{ color:var(--gray-600); }
+  .success-row .val{ font-weight:700; color:var(--gray-800); }
+  .success-row.suff .val{ color:var(--green-text); }
+  .success-row.insuff .val{ color:var(--red-text); }
+
+  /* ============================== नवीन अपडेट पॉपअप ============================== */
+  .whats-new-overlay{
+    position:fixed; inset:0; background:rgba(0,0,0,0.5);
+    z-index:999; display:flex; align-items:center; justify-content:center;
+    padding:16px;
+  }
+  .whats-new-card{
+    background:var(--white); border-radius:var(--radius-lg);
+    max-width:420px; width:100%; max-height:85vh; overflow-y:auto;
+    box-shadow:0 16px 48px rgba(0,0,0,0.25);
+    animation: wnSlideUp 0.3s ease-out;
+  }
+  @keyframes wnSlideUp{
+    from{ opacity:0; transform:translateY(30px); }
+    to{ opacity:1; transform:translateY(0); }
+  }
+  .wn-header{
+    background:linear-gradient(135deg, var(--blue-700), var(--blue-600));
+    color:#fff; padding:20px; border-radius:var(--radius-lg) var(--radius-lg) 0 0;
+    text-align:center;
+  }
+  .wn-header h2{ margin:0 0 4px; font-size:18px; }
+  .wn-header p{ margin:0; font-size:12px; opacity:0.85; }
+  .wn-body{ padding:16px 20px; }
+  .wn-feature{
+    display:flex; gap:12px; align-items:flex-start;
+    padding:12px 0; border-bottom:1px solid var(--gray-100);
+  }
+  .wn-feature:last-child{ border-bottom:none; }
+  .wn-icon{
+    width:36px; height:36px; border-radius:10px;
+    display:flex; align-items:center; justify-content:center;
+    font-size:18px; flex-shrink:0;
+  }
+  .wn-icon-blue{ background:#E3F2FD; }
+  .wn-icon-green{ background:#E8F5E9; }
+  .wn-icon-orange{ background:#FFF3E0; }
+  .wn-icon-purple{ background:#F3E5F5; }
+  .wn-feat-title{ font-size:13px; font-weight:700; color:var(--gray-800); margin-bottom:2px; }
+  .wn-feat-desc{ font-size:11.5px; color:var(--gray-600); line-height:1.5; }
+  .wn-footer{
+    padding:12px 20px 20px; text-align:center;
+  }
+  .wn-dismiss{
+    background:var(--blue-600); color:#fff; border:none;
+    border-radius:var(--radius-sm); padding:10px 32px;
+    font-size:14px; font-weight:700; cursor:pointer;
+    width:100%;
+  }
+  .wn-dismiss:active{ opacity:0.85; }
+  .wn-version{ font-size:10px; color:var(--gray-500); margin-top:8px; }
+
+  /* ============================== टोस्ट / त्रुटी ============================== */
+  .toast{
+    position:fixed;
+    bottom:24px;
+    left:50%;
+    transform:translateX(-50%) translateY(20px);
+    background:var(--gray-800);
+    color:var(--white);
+    padding:12px 20px;
+    border-radius:30px;
+    font-size:13.5px;
+    font-weight:600;
+    box-shadow:var(--shadow-lg);
+    z-index:200;
+    opacity:0;
+    transition:opacity 0.25s, transform 0.25s;
+    max-width:88%;
+    text-align:center;
+  }
+  .toast.show{ opacity:1; transform:translateX(-50%) translateY(0); }
+  .toast.error{ background:var(--red-text); }
+
+  /* ============================== लोडिंग ओव्हरले ============================== */
+  .loading-overlay{
+    position:fixed;
+    inset:0;
+    background:rgba(255,255,255,0.92);
+    z-index:300;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    gap:14px;
+  }
+  .spinner{
+    width:42px; height:42px;
+    border:4px solid var(--gray-200);
+    border-top-color:var(--navy);
+    border-radius:50%;
+    animation:spin 0.8s linear infinite;
+  }
+  @keyframes spin{ to{ transform:rotate(360deg); } }
+  .loading-text{ font-size:13.5px; color:var(--navy); font-weight:600; }
+
+  /* ============================== फूटर ============================== */
+  .app-footer{
+    text-align:center;
+    font-size:10.5px;
+    color:var(--gray-400);
+    padding:10px 16px 16px;
+  }
+
+  /* स्क्रीन 1 विशिष्ट */
+  .s1-intro{ text-align:center; margin-bottom:20px; }
+  .s1-intro-icon{
+    width:56px; height:56px;
+    background:var(--navy);
+    border-radius:16px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    margin:0 auto 12px;
+    box-shadow:var(--shadow-md);
+  }
+  .s1-intro-title{ font-size:16px; font-weight:700; color:var(--gray-800); }
+  .s1-intro-sub{ font-size:12.5px; color:var(--gray-600); margin-top:4px; }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- ============================== टॉप बार ============================== -->
+  <div class="topbar">
+    <div class="topbar-logo">SS</div>
+    <div class="topbar-text">
+      <div class="topbar-title">MSRTC Mechanized Cleaning</div>
+      <div class="topbar-sub">Material Status</div>
+    </div>
+    <div class="topbar-meta" id="topbarMeta"></div>
+  </div>
+
+  <!-- ============================== SCREEN 1: स्थानक निवड ============================== -->
+  <div class="screen" id="screen1">
+    <div class="screen-body">
+      <div class="s1-intro">
+        <svg width="0" height="0"></svg>
+        <div class="s1-intro-icon">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
+            <path d="M3 11L12 4L21 11V20A1 1 0 0 1 20 21H4A1 1 0 0 1 3 20V11Z" stroke="#FFC400" stroke-width="2" stroke-linejoin="round"/>
+            <path d="M9 21V13H15V21" stroke="#FFC400" stroke-width="2" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <div class="s1-intro-title">स्थानक निवड करा</div>
+        <div class="s1-intro-sub">मटेरियल सर्वेक्षण सुरू करण्यासाठी खालील माहिती भरा</div>
+      </div>
+
+      <div class="card">
+        <div class="form-group">
+          <label class="form-label">जिल्हा <span class="req">*</span></label>
+          <select id="districtSelect">
+            <option value="">— जिल्हा निवडा —</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">स्थानक <span class="req">*</span></label>
+          <select id="stationSelect" disabled>
+            <option value="">— प्रथम जिल्हा निवडा —</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Project Manager</label>
+          <div class="readonly-field" id="pmField">
+            <span class="placeholder-text">स्थानक निवडल्यावर स्वयंभरले जाईल</span>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">तारीख <span class="req">*</span></label>
+          <input type="date" id="dateInput">
+          <div class="form-hint">आजची तारीख स्वयंभरलेली आहे — आवश्यक असल्यास बदलू शकता</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="past-entries-section hidden" id="pastEntriesSection">
+      <div class="past-entries-header">📋 पूर्वीच्या नोंदी</div>
+      <div id="pastEntriesList"></div>
+      <div class="past-entries-empty hidden" id="pastEntriesEmpty">या स्थानकासाठी अद्याप कोणतीही नोंद नाही.</div>
+      <div class="past-entries-loading hidden" id="pastEntriesLoading">नोंदी लोड होत आहेत…</div>
+    </div>
+
+    <div class="bottom-bar">
+      <button class="btn btn-primary" id="goToScreen2Btn" disabled>
+        नवीन सर्वेक्षण सुरू करा
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M5 12H19M19 12L13 6M19 12L13 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    </div>
+    <div class="app-footer">Smart Services © 2026 | MSRTC</div>
+  </div>
+
+  <!-- ============================== SCREEN 2: मटेरियल चेकलिस्ट ============================== -->
+  <div class="screen hidden" id="screen2">
+    <div class="progress-wrap">
+      <div class="station-context">
+        <div class="sc-station" id="ctxStation">—</div>
+        <div class="sc-pm">PM: <b id="ctxPm">—</b> &nbsp;·&nbsp; <span id="ctxDate">—</span></div>
+      </div>
+      <div class="progress-label">
+        <span class="count"><span id="progressCount">0</span><span class="total"> / 32 पूर्ण</span></span>
+        <span class="pct" id="progressPct">0%</span>
+      </div>
+      <div class="progress-track">
+        <div class="progress-fill" id="progressFill" style="width:0%"></div>
+      </div>
+    </div>
+
+    <div class="material-list" id="materialList">
+      <!-- मटेरियल कार्ड्स JS द्वारे येथे टाकले जातील -->
+    </div>
+
+    <div class="bottom-bar">
+      <button class="btn btn-gold" id="submitOpenModalBtn" disabled>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M5 13L9 17L19 7" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        जमा करा
+      </button>
+      <div class="bottom-bar-hint" id="bottomBarHint">सर्व 32 मटेरियल्सची नोंद पूर्ण करा</div>
+    </div>
+  </div>
+
+  <!-- ============================== SCREEN 4: यश स्क्रीन ============================== -->
+  <div class="screen hidden" id="screen4">
+    <div class="success-wrap">
+      <div class="success-icon">
+        <svg width="46" height="46" viewBox="0 0 24 24" fill="none"><path d="M5 13L9 17L19 7" stroke="#2E7D32" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </div>
+      <div class="success-title">✅ सर्वेक्षण यशस्वीरित्या जमा झाले!</div>
+      <div class="success-sub" id="successSub">स्थानकाची नोंद Google Sheet मध्ये जतन झाली आहे</div>
+
+      <div class="success-card">
+        <div class="success-row"><span class="lbl">स्थानक</span><span class="val" id="successStation">—</span></div>
+        <div class="success-row"><span class="lbl">तारीख</span><span class="val" id="successDate">—</span></div>
+        <div class="success-row suff"><span class="lbl">पुरेसे मटेरियल</span><span class="val" id="successSuff">—</span></div>
+        <div class="success-row insuff"><span class="lbl">अपुरे मटेरियल</span><span class="val" id="successInsuff">—</span></div>
+        <div class="success-row"><span class="lbl">एकूण अतिरिक्त आवश्यक</span><span class="val" id="successExtra">—</span></div>
+      </div>
+
+      <button class="btn btn-primary" id="newSurveyBtn">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M12 5V19M5 12H19" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        नवीन सर्वेक्षण
+      </button>
+    </div>
+    <div class="app-footer">Smart Services © 2026 | MSRTC</div>
+  </div>
+
+  <!-- ============================== मोडल: सारांश (Screen 3) ============================== -->
+  <div class="modal-overlay hidden" id="summaryModal">
+    <div class="modal-sheet">
+      <div class="modal-header">
+        <div class="modal-handle"></div>
+        <div class="modal-title">Material Status सारांश</div>
+        <div class="modal-sub"><span id="modalStation">—</span> &nbsp;·&nbsp; <span id="modalDate">—</span></div>
+      </div>
+
+    <div class="kpi-row">
+        <div class="kpi-card">
+          <div class="kpi-num" id="kpiTotal">32</div>
+          <div class="kpi-lbl">एकूण लागू मटेरियल</div>
+        </div>
+        <div class="kpi-card kpi-suff">
+          <div class="kpi-num" id="kpiSufficient">0</div>
+          <div class="kpi-lbl">पुरेसे</div>
+        </div>
+        <div class="kpi-card kpi-insuff">
+          <div class="kpi-num" id="kpiInsufficient">0</div>
+          <div class="kpi-lbl">अपुरे</div>
+        </div>
+      </div>
+
+     <!-- REPLACE existing dupWarning div with this: -->
+    <div class="dup-warning hidden" id="dupWarning">
+      <span style="font-size:18px;">🚫</span>
+      <div>
+        <div style="font-weight:800; font-size:13px; margin-bottom:4px;">पुन्हा नोंद करता येणार नाही</div>
+        <span>या स्थानकासाठी आजच्या तारखेला (<span id="dupDateDisplay"></span>) आधीच एक नोंद सबमिट झालेली आहे. एकाच दिवशी एकाच स्थानकासाठी दुसरी नोंद करण्याची परवानगी नाही.</span>
+      </div>
+    </div>
+
+      <div class="modal-body">
+        <table class="summary-table">
+          <thead>
+            <tr>
+              <th>मटेरियल नाव</th>
+              <th>दिलेली</th>
+              <th>मिळाली</th>
+              <th>पुरेसे?</th>
+              <th>अतिरिक्त</th>
+            </tr>
+          </thead>
+          <tbody id="summaryTableBody"></tbody>
+          <tfoot>
+            <tr>
+              <td>एकूण</td>
+              <td id="footTotalGiven">0</td>
+              <td id="footTotalReceived">0</td>
+              <td>—</td>
+              <td id="footTotalExtra">0</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+
+      <div class="modal-actions">
+        <button class="btn btn-outline" id="backToEditBtn">← सुधारणा करा</button>
+        <button class="btn btn-gold" id="finalSubmitBtn">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M5 13L9 17L19 7" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Google Sheet मध्ये जमा करा
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================== नवीन अपडेट पॉपअप ============================== -->
+  <div class="whats-new-overlay hidden" id="whatsNewOverlay">
+    <div class="whats-new-card">
+      <div class="wn-header">
+        <h2>🎉 नवीन अपडेट!</h2>
+        <p>Material Status App मध्ये नवीन सुविधा जोडल्या आहेत</p>
+      </div>
+      <div class="wn-body">
+
+        <div class="wn-feature">
+          <div class="wn-icon wn-icon-blue">✏️</div>
+          <div>
+            <div class="wn-feat-title">पूर्वीच्या नोंदी सुधारणे (Edit Past Entries)</div>
+            <div class="wn-feat-desc">स्थानक निवडल्यावर आता पूर्वीच्या सर्व नोंदींची यादी दिसेल. कोणत्याही तारखेची नोंद "✏️ सुधारा" बटणावर क्लिक करून पुन्हा संपादित करता येते.</div>
+          </div>
+        </div>
+
+        <div class="wn-feature">
+          <div class="wn-icon wn-icon-orange">📊</div>
+          <div>
+            <div class="wn-feat-title">अतिरिक्त मटेरियल — कमाल 40% मर्यादा</div>
+            <div class="wn-feat-desc">मटेरियल अपुरे असल्यास, अतिरिक्त आवश्यक संख्या दिलेल्या (Issued) संख्येच्या जास्तीत जास्त 40% पर्यंतच नमूद करता येते.</div>
+          </div>
+        </div>
+
+      </div>
+      <div class="wn-footer">
+        <button class="wn-dismiss" id="whatsNewDismiss">समजले ✓</button>
+        <div class="wn-version">आवृत्ती 2.0 — जुलै 2026</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================== टोस्ट ============================== -->
+  <div class="toast" id="toast"></div>
+
+  <!-- ============================== लोडिंग ओव्हरले ============================== -->
+  <div class="loading-overlay hidden" id="loadingOverlay">
+    <div class="spinner"></div>
+    <div class="loading-text" id="loadingText">लोड होत आहे…</div>
+  </div>
+
+</div>
+
+<script>
+/* ====================================================================
+   MSRTC Material Status — क्लायंट-साईड लॉजिक
+   ==================================================================== */
+
+// ------------------------- ग्लोबल स्टेट -------------------------
+var BASE_DATA = null;          // getBaseData() चा निकाल (एकदाच लोड, कॅश्ड)
+var SELECTED = {               // Screen 1 निवडी
+  district: '',
+  station: '',
+  pm: '',
+  date: '',
+  editMode: false,
+  editDate: ''
+};
+var MATERIAL_STATE = [];       // प्रत्येक मटेरियलसाठी { received, sufficient, extra }
+var ISSUED_QTY_MAP = {};       // निवडलेल्या स्थानकासाठी { "Material Name": qty } — Screen 1→2 वर लोड होते
+var TOTAL_MATERIALS = 32;
+
+// ------------------------- सहाय्यक: टोस्ट -------------------------
+var toastTimer = null;
+function showToast(msg, isError) {
+  var t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show' + (isError ? ' error' : '');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(function () {
+    t.classList.remove('show');
+  }, 3200);
+}
+
+// ------------------------- सहाय्यक: लोडिंग ओव्हरले -------------------------
+function showLoading(text) {
+  document.getElementById('loadingText').textContent = text || 'लोड होत आहे…';
+  document.getElementById('loadingOverlay').classList.remove('hidden');
+}
+function hideLoading() {
+  document.getElementById('loadingOverlay').classList.add('hidden');
+}
+
+// ------------------------- सहाय्यक: आजची तारीख (IST) yyyy-mm-dd फॉरमॅटमध्ये -------------------------
+function getTodayISTForInput() {
+  var now = new Date();
+  var istString = now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' });
+  var istDate = new Date(istString);
+  var y = istDate.getFullYear();
+  var m = String(istDate.getMonth() + 1).padStart(2, '0');
+  var d = String(istDate.getDate()).padStart(2, '0');
+  return y + '-' + m + '-' + d;
+}
+// dd/MM/yyyy फॉरमॅटमध्ये रूपांतर (Responses शीटसाठी / प्रदर्शनासाठी)
+function formatDateForSheet(yyyyMmDd) {
+  if (!yyyyMmDd) return '';
+  var parts = yyyyMmDd.split('-');
+  if (parts.length !== 3) return yyyyMmDd;
+  return parts[2] + '/' + parts[1] + '/' + parts[0];
+}
+
+// ====================================================================
+//  INIT — अॅप सुरू होताना getBaseData() कॉल करा
+// ====================================================================
+function initApp() {
+  showLoading('डेटा लोड होत आहे…');
+  google.script.run
+    .withSuccessHandler(function (data) {
+      BASE_DATA = data;
+      TOTAL_MATERIALS = data.totalMaterials || 32;
+      populateDistrictDropdown();
+      var today = getTodayISTForInput();
+      var dateEl = document.getElementById('dateInput');
+      dateEl.value = today;
+      dateEl.max = today;   // ⬅️ future dates disabled
+      hideLoading();
+    })
+    .withFailureHandler(function (err) {
+      hideLoading();
+      showToast('डेटा लोड होण्यात अडचण: ' + (err && err.message ? err.message : err), true);
+    })
+    .getBaseData();
+}
+
+function populateDistrictDropdown() {
+  var sel = document.getElementById('districtSelect');
+  sel.innerHTML = '<option value="">— जिल्हा निवडा —</option>';
+  BASE_DATA.districts.forEach(function (d) {
+    var opt = document.createElement('option');
+    opt.value = d;
+    opt.textContent = d;
+    sel.appendChild(opt);
+  });
+}
+
+function populateStationDropdown(district) {
+  var sel = document.getElementById('stationSelect');
+  sel.innerHTML = '';
+  var matching = BASE_DATA.stations.filter(function (s) { return s.district === district; });
+  matching.sort(function (a, b) { return a.station.localeCompare(b.station, 'mr'); });
+
+  if (!district || matching.length === 0) {
+    sel.innerHTML = '<option value="">— प्रथम जिल्हा निवडा —</option>';
+    sel.disabled = true;
+    return;
+  }
+  sel.innerHTML = '<option value="">— स्थानक निवडा —</option>';
+  matching.forEach(function (s) {
+    var opt = document.createElement('option');
+    opt.value = s.station;
+    opt.textContent = s.station;
+    opt.dataset.pm = s.pm;
+    sel.appendChild(opt);
+  });
+  sel.disabled = false;
+}
+
+// ------------------------- Screen 1 इव्हेंट्स -------------------------
+document.getElementById('districtSelect').addEventListener('change', function () {
+  var district = this.value;
+  SELECTED.district = district;
+  SELECTED.station = '';
+  SELECTED.pm = '';
+  populateStationDropdown(district);
+  updatePmField('');
+  validateScreen1();
+});
+
+document.getElementById('stationSelect').addEventListener('change', function () {
+  var opt = this.options[this.selectedIndex];
+  SELECTED.station = this.value;
+  SELECTED.pm = this.value ? (opt.dataset.pm || '') : '';
+  updatePmField(SELECTED.pm);
+  validateScreen1();
+  fetchPastEntries();
+});
+
+document.getElementById('dateInput').addEventListener('change', function () {
+  SELECTED.date = this.value;
+  validateScreen1();
+});
+
+function updatePmField(pm) {
+  var field = document.getElementById('pmField');
+  if (pm) {
+    field.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" style="flex-shrink:0"><circle cx="12" cy="8" r="3.5" stroke="#002B6B" stroke-width="2"/><path d="M5 20C5 16.5 8 14 12 14C16 14 19 16.5 19 20" stroke="#002B6B" stroke-width="2" stroke-linecap="round"/></svg>' + pm;
+  } else {
+    field.innerHTML = '<span class="placeholder-text">स्थानक निवडल्यावर स्वयंभरले जाईल</span>';
+  }
+}
+
+function validateScreen1() {
+  SELECTED.date = document.getElementById('dateInput').value;
+  var ok = SELECTED.district && SELECTED.station && SELECTED.pm && SELECTED.date;
+  document.getElementById('goToScreen2Btn').disabled = !ok;
+}
+
+function fetchPastEntries() {
+  var section = document.getElementById('pastEntriesSection');
+  var list = document.getElementById('pastEntriesList');
+  var empty = document.getElementById('pastEntriesEmpty');
+  var loading = document.getElementById('pastEntriesLoading');
+
+  if (!SELECTED.district || !SELECTED.station) {
+    section.classList.add('hidden');
+    return;
+  }
+
+  section.classList.remove('hidden');
+  list.innerHTML = '';
+  empty.classList.add('hidden');
+  loading.classList.remove('hidden');
+
+  google.script.run
+    .withSuccessHandler(function (entries) {
+      loading.classList.add('hidden');
+      if (!entries || entries.length === 0) {
+        empty.classList.remove('hidden');
+        return;
+      }
+      var html = '';
+      for (var i = 0; i < entries.length; i++) {
+        var e = entries[i];
+        html += '<div class="past-entry-card" id="pe-' + i + '">' +
+          '<div>' +
+            '<div class="past-entry-date">📅 ' + e.date + '</div>' +
+            '<div class="past-entry-meta">PM: ' + e.pm + '</div>' +
+          '</div>' +
+          '<div class="past-entry-actions">' +
+            '<button class="past-entry-edit-btn" data-date="' + e.date + '">✏️ सुधारा</button>' +
+            '<button class="past-entry-del-btn" data-date="' + e.date + '" data-idx="' + i + '">🗑️</button>' +
+          '</div>' +
+        '</div>';
+      }
+      list.innerHTML = html;
+      var editBtns = list.querySelectorAll('.past-entry-edit-btn');
+      for (var b = 0; b < editBtns.length; b++) {
+        editBtns[b].addEventListener('click', function () {
+          startEditMode(this.getAttribute('data-date'));
+        });
+      }
+      var delBtns = list.querySelectorAll('.past-entry-del-btn');
+      for (var d = 0; d < delBtns.length; d++) {
+        delBtns[d].addEventListener('click', function () {
+          var dateVal = this.getAttribute('data-date');
+          var cardId = 'pe-' + this.getAttribute('data-idx');
+          if (!confirm('⚠️ ' + dateVal + ' ची नोंद कायमची हटवायची आहे का?\n\nही क्रिया पूर्ववत करता येणार नाही.')) return;
+          var btn = this;
+          btn.disabled = true;
+          btn.textContent = '…';
+          google.script.run
+            .withSuccessHandler(function (res) {
+              if (res.success) {
+                var card = document.getElementById(cardId);
+                if (card) card.remove();
+                showToast(dateVal + ' ची नोंद यशस्वीरित्या हटवली.');
+                if (!list.querySelector('.past-entry-card')) {
+                  empty.classList.remove('hidden');
+                }
+              } else {
+                btn.disabled = false;
+                btn.textContent = '🗑️';
+                showToast(res.error || 'हटवताना त्रुटी आली.', true);
+              }
+            })
+            .withFailureHandler(function (err) {
+              btn.disabled = false;
+              btn.textContent = '🗑️';
+              showToast('सर्व्हर त्रुटी: ' + (err && err.message ? err.message : err), true);
+            })
+            .deleteResponse(SELECTED.district, SELECTED.station, dateVal);
+        });
+      }
+    })
+    .withFailureHandler(function (err) {
+      loading.classList.add('hidden');
+      empty.textContent = 'नोंदी आणताना त्रुटी आली.';
+      empty.classList.remove('hidden');
+    })
+    .getSubmissionsForStation(SELECTED.district, SELECTED.station);
+}
+
+function sheetDateToInputDate(ddMmYyyy) {
+  var p = ddMmYyyy.split('/');
+  if (p.length !== 3) return ddMmYyyy;
+  return p[2] + '-' + p[1] + '-' + p[0];
+}
+
+function startEditMode(dateStr) {
+  SELECTED.editMode = true;
+  SELECTED.editDate = dateStr;
+  SELECTED.date = sheetDateToInputDate(dateStr);
+  showLoading('नोंद लोड होत आहे…');
+
+  google.script.run
+    .withSuccessHandler(function (qtyMap) {
+      ISSUED_QTY_MAP = qtyMap || {};
+
+      google.script.run
+        .withSuccessHandler(function (savedData) {
+          hideLoading();
+          if (!savedData) {
+            showToast('मूळ नोंद सापडली नाही.', true);
+            SELECTED.editMode = false;
+            return;
+          }
+          initMaterialState();
+          prefillMaterialState(savedData.materials);
+          renderTopbarMeta();
+          renderScreen2Context();
+          renderMaterialCards();
+          applyPrefillToCards();
+          goToScreen('screen2');
+        })
+        .withFailureHandler(function (err) {
+          hideLoading();
+          SELECTED.editMode = false;
+          showToast('नोंद आणताना त्रुटी: ' + (err && err.message ? err.message : err), true);
+        })
+        .getSubmissionForEdit(SELECTED.district, SELECTED.station, dateStr);
+    })
+    .withFailureHandler(function (err) {
+      hideLoading();
+      SELECTED.editMode = false;
+      showToast('मटेरियल संख्या आणताना त्रुटी: ' + (err && err.message ? err.message : err), true);
+    })
+    .getIssuedQtyForStation(SELECTED.district, SELECTED.station);
+}
+
+function prefillMaterialState(savedMaterials) {
+  for (var i = 0; i < savedMaterials.length && i < MATERIAL_STATE.length; i++) {
+    var s = savedMaterials[i];
+    if (!MATERIAL_STATE[i].applicable) continue;
+    MATERIAL_STATE[i].received = s.received || '';
+    MATERIAL_STATE[i].sufficient = s.sufficient || '';
+    MATERIAL_STATE[i].extra = (s.extra && String(s.extra) !== '0') ? String(s.extra) : '';
+    MATERIAL_STATE[i].locallyPurchased = s.locallyPurchased || '';
+    MATERIAL_STATE[i].locallyPurchasedQty = (s.locallyPurchasedQty && String(s.locallyPurchasedQty) !== '0') ? String(s.locallyPurchasedQty) : '';
+  }
+}
+
+function applyPrefillToCards() {
+  for (var idx = 0; idx < MATERIAL_STATE.length; idx++) {
+    var m = MATERIAL_STATE[idx];
+    if (!m.applicable) continue;
+
+    var receivedInput = document.getElementById('received-' + idx);
+    if (receivedInput && m.received !== '') receivedInput.value = m.received;
+
+    if (m.sufficient === 'होय' || m.sufficient === 'नाही') {
+      setSufficient(idx, m.sufficient);
+    }
+    if (m.sufficient === 'नाही' && m.extra !== '') {
+      var extraInput = document.getElementById('extra-' + idx);
+      if (extraInput) extraInput.value = m.extra;
+      MATERIAL_STATE[idx].extra = m.extra;
+    }
+
+    if (m.locallyPurchased === 'होय' || m.locallyPurchased === 'नाही') {
+      setLocallyPurchased(idx, m.locallyPurchased);
+    }
+    if (m.locallyPurchased === 'होय' && m.locallyPurchasedQty !== '') {
+      var lpQtyInput = document.getElementById('lpQty-' + idx);
+      if (lpQtyInput) lpQtyInput.value = m.locallyPurchasedQty;
+      MATERIAL_STATE[idx].locallyPurchasedQty = m.locallyPurchasedQty;
+    }
+
+    updateCardCompletion(idx);
+  }
+}
+
+document.getElementById('goToScreen2Btn').addEventListener('click', function () {
+  if (!BASE_DATA) return;
+  SELECTED.editMode = false;
+  SELECTED.editDate = '';
+  showLoading('स्थानकाची मटेरियल संख्या आणत आहे…');
+  google.script.run
+    .withSuccessHandler(function (qtyMap) {
+      ISSUED_QTY_MAP = qtyMap || {};
+      hideLoading();
+      initMaterialState();
+      renderTopbarMeta();
+      renderScreen2Context();
+      renderMaterialCards();
+      goToScreen('screen2');
+    })
+    .withFailureHandler(function (err) {
+      hideLoading();
+      showToast('मटेरियल संख्या आणताना त्रुटी: ' + (err && err.message ? err.message : err), true);
+    })
+    .getIssuedQtyForStation(SELECTED.district, SELECTED.station);
+});
+
+function renderTopbarMeta() {
+  var editLabel = SELECTED.editMode ? ' <span style="background:#FFC107;color:#000;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:700;">✏️ सुधारणा</span>' : '';
+  document.getElementById('topbarMeta').innerHTML =
+    '<span class="station-name">' + SELECTED.station + '</span>' + formatDateForSheet(SELECTED.date) + editLabel;
+}
+
+function renderScreen2Context() {
+  document.getElementById('ctxStation').textContent = SELECTED.station + ' (' + SELECTED.district + ')';
+  document.getElementById('ctxPm').textContent = SELECTED.pm;
+  document.getElementById('ctxDate').textContent = formatDateForSheet(SELECTED.date);
+}
+
+// ====================================================================
+//  SCREEN 2 — मटेरियल चेकलिस्ट
+// ====================================================================
+function initMaterialState() {
+  MATERIAL_STATE = BASE_DATA.materials.map(function (mat) {
+    var qty = ISSUED_QTY_MAP[mat.name];
+    var isExplicitZero = (qty !== '' && qty !== undefined && qty !== null && Number(qty) === 0);
+    var isApplicable = !isExplicitZero;
+    return {
+      applicable: isApplicable,
+      received: '',
+      sufficient: '',
+      extra: '',
+      locallyPurchased: '',
+      locallyPurchasedQty: '',
+      issuedQty: (qty === '' || qty === undefined || qty === null) ? 0 : Number(qty)
+    };
+  });
+}
+
+function getGivenQty(materialName) {
+  var qty = ISSUED_QTY_MAP[materialName];
+  if (qty === undefined || qty === null || qty === '') return '';
+  return qty;
+}
+
+function getMaxAllowedExtra(idx) {
+  var issued = MATERIAL_STATE[idx].issuedQty || 0;
+  return Math.ceil(issued * 0.4);
+}
+
+function renderMaterialCards() {
+  var list = document.getElementById('materialList');
+  list.innerHTML = '';
+  var skippedCount = 0;
+
+  BASE_DATA.materials.forEach(function (mat, idx) {
+    if (!MATERIAL_STATE[idx].applicable) {
+      skippedCount++;
+      return;
+    }
+
+    var card = document.createElement('div');
+    card.className = 'material-card';
+    card.id = 'mcard-' + idx;
+
+    var givenQty = getGivenQty(mat.name);
+    var givenQtyDisplay = (givenQty === '') ? '—' : givenQty;
+    var maxExtra = getMaxAllowedExtra(idx);
+
+    card.innerHTML =
+      '<div class="mc-head">' +
+        '<div class="mc-titles">' +
+          '<div class="mc-name">' + escapeHtml(mat.name) + '</div>' +
+          '<div class="mc-unit">युनिट: <b>' + escapeHtml(mat.unit) + '</b></div>' +
+        '</div>' +
+        '<div class="mc-status-badge badge-pending" id="badge-' + idx + '">प्रलंबित</div>' +
+      '</div>' +
+
+      '<div class="mc-grid">' +
+
+        '<div class="mc-row">' +
+          '<div class="mc-row-label">आपल्याला देण्यात आलेली मटेरियल ची संख्या</div>' +
+          '<div class="mc-row-control"><span class="mc-given-val">' + givenQtyDisplay + '</span></div>' +
+        '</div>' +
+
+        '<div class="mc-row">' +
+          '<div class="mc-row-label">आपल्याकडे प्राप्त झालेल्या मटेरियलची संख्या कृपया नमूद करा <span class="req">*</span></div>' +
+          '<div class="mc-row-control">' +
+            '<div class="qty-input-compact">' +
+              '<input type="number" inputmode="numeric" min="0" step="1" placeholder="संख्या" id="received-' + idx + '">' +
+              '<div class="qty-unit-suffix">' + escapeHtml(mat.unit) + '</div>' +
+            '</div>' +
+          '</div>' +
+        '</div>' +
+
+        '<div class="mc-row">' +
+          '<div class="mc-row-label">प्राप्त झालेले मटेरियल आपल्यासाठी पुरेसे आहे का? <span class="req">*</span></div>' +
+          '<div class="mc-row-control">' +
+            '<div class="suff-toggle">' +
+              '<button type="button" class="suff-btn yes" id="yes-' + idx + '">होय</button>' +
+              '<button type="button" class="suff-btn no" id="no-' + idx + '">नाही</button>' +
+            '</div>' +
+          '</div>' +
+        '</div>' +
+
+        '<div class="mc-row extra-row hidden" id="extraWrap-' + idx + '">' +
+          '<div class="mc-row-label">अतिरिक्त लागणारी आवश्यक मटेरियल (कमाल ' + maxExtra + ' ' + escapeHtml(mat.unit) + ' — दिलेल्या संख्येच्या 40%) <span class="req">*</span></div>' +
+          '<div class="mc-row-control">' +
+            '<div style="display:flex; flex-direction:column; align-items:flex-end;">' +
+              '<div class="qty-input-compact">' +
+                '<input type="number" inputmode="numeric" min="1" max="' + maxExtra + '" step="1" placeholder="कमाल ' + maxExtra + '" id="extra-' + idx + '">' +
+                '<div class="qty-unit-suffix">' + escapeHtml(mat.unit) + '</div>' +
+              '</div>' +
+              '<div class="mc-extra-cap-hint" id="extraCapHint-' + idx + '"></div>' +
+            '</div>' +
+          '</div>' +
+        '</div>' +
+
+        '<div class="mc-row">' +
+          '<div class="mc-row-label">स्वतः स्थानिक पातळीवर खरेदी केले का? <span class="req">*</span></div>' +
+          '<div class="mc-row-control">' +
+            '<div class="suff-toggle">' +
+              '<button type="button" class="suff-btn yes" id="lpYes-' + idx + '">होय</button>' +
+              '<button type="button" class="suff-btn no" id="lpNo-' + idx + '">नाही</button>' +
+            '</div>' +
+          '</div>' +
+        '</div>' +
+
+        '<div class="mc-row extra-row hidden" id="lpQtyWrap-' + idx + '">' +
+          '<div class="mc-row-label">स्थानिक खरेदी केलेली संख्या <span class="req">*</span></div>' +
+          '<div class="mc-row-control">' +
+            '<div class="qty-input-compact" style="width:128px">' +
+              '<input type="number" inputmode="numeric" min="1" step="1" placeholder="संख्या" id="lpQty-' + idx + '">' +
+              '<div class="qty-unit-suffix">' + escapeHtml(mat.unit) + '</div>' +
+            '</div>' +
+          '</div>' +
+        '</div>' +
+
+      '</div>' +
+
+      '<div class="mc-status-row">' +
+        '<span style="font-size:12px; color:var(--gray-600); font-weight:600;">स्थिती: <span id="statusText-' + idx + '" style="color:var(--gray-600); font-weight:700;">प्रलंबित</span></span>' +
+      '</div>';
+
+    list.appendChild(card);
+
+    document.getElementById('received-' + idx).addEventListener('input', function () {
+      MATERIAL_STATE[idx].received = this.value;
+      updateCardCompletion(idx);
+    });
+
+    document.getElementById('yes-' + idx).addEventListener('click', function () { setSufficient(idx, 'होय'); });
+    document.getElementById('no-' + idx).addEventListener('click', function () { setSufficient(idx, 'नाही'); });
+
+    document.getElementById('extra-' + idx).addEventListener('input', function () {
+      var val = this.value;
+      var maxAllowed = getMaxAllowedExtra(idx);
+      var hint = document.getElementById('extraCapHint-' + idx);
+      if (val !== '' && Number(val) > maxAllowed) {
+        hint.textContent = '⚠️ कमाल मर्यादा ' + maxAllowed + ' ' + escapeHtml(mat.unit) + ' आहे (40%)';
+        hint.classList.add('exceeded');
+      } else {
+        hint.textContent = maxAllowed > 0 ? ('कमाल अनुज्ञेय: ' + maxAllowed + ' ' + escapeHtml(mat.unit)) : '';
+        hint.classList.remove('exceeded');
+      }
+      MATERIAL_STATE[idx].extra = val;
+      updateCardCompletion(idx);
+    });
+
+    document.getElementById('lpYes-' + idx).addEventListener('click', function () { setLocallyPurchased(idx, 'होय'); });
+    document.getElementById('lpNo-' + idx).addEventListener('click', function () { setLocallyPurchased(idx, 'नाही'); });
+
+    document.getElementById('lpQty-' + idx).addEventListener('input', function () {
+      MATERIAL_STATE[idx].locallyPurchasedQty = this.value;
+      updateCardCompletion(idx);
+    });
+  });
+
+  renderSkippedNote(skippedCount);
+  updateProgress();
+}
+
+function setSufficient(idx, value) {
+  MATERIAL_STATE[idx].sufficient = value;
+  var yesBtn = document.getElementById('yes-' + idx);
+  var noBtn = document.getElementById('no-' + idx);
+  var extraWrap = document.getElementById('extraWrap-' + idx);
+  var extraInput = document.getElementById('extra-' + idx);
+
+  if (value === 'होय') {
+    yesBtn.classList.add('active');
+    noBtn.classList.remove('active');
+    extraWrap.classList.add('hidden');
+    extraInput.disabled = true;
+    extraInput.value = '';
+    MATERIAL_STATE[idx].extra = '';
+  } else {
+    noBtn.classList.add('active');
+    yesBtn.classList.remove('active');
+    extraWrap.classList.remove('hidden');
+    extraInput.disabled = false;
+  }
+  updateCardCompletion(idx);
+}
+
+function setLocallyPurchased(idx, value) {
+  MATERIAL_STATE[idx].locallyPurchased = value;
+  var yesBtn = document.getElementById('lpYes-' + idx);
+  var noBtn = document.getElementById('lpNo-' + idx);
+  var qtyWrap = document.getElementById('lpQtyWrap-' + idx);
+  var qtyInput = document.getElementById('lpQty-' + idx);
+
+  if (value === 'होय') {
+    yesBtn.classList.add('active');
+    noBtn.classList.remove('active');
+    qtyWrap.classList.remove('hidden');
+    qtyInput.disabled = false;
+  } else {
+    noBtn.classList.add('active');
+    yesBtn.classList.remove('active');
+    qtyWrap.classList.add('hidden');
+    qtyInput.disabled = true;
+    qtyInput.value = '';
+    MATERIAL_STATE[idx].locallyPurchasedQty = '';
+  }
+  updateCardCompletion(idx);
+}
+
+function isMaterialComplete(idx) {
+  var m = MATERIAL_STATE[idx];
+  if (!m.applicable) return true;
+  if (m.received === '' || m.received === null || isNaN(Number(m.received)) || Number(m.received) < 0) return false;
+  if (m.sufficient !== 'होय' && m.sufficient !== 'नाही') return false;
+  if (m.sufficient === 'नाही') {
+    if (m.extra === '' || m.extra === null || isNaN(Number(m.extra)) || Number(m.extra) <= 0) return false;
+    var maxAllowed = getMaxAllowedExtra(idx);
+    if (maxAllowed > 0 && Number(m.extra) > maxAllowed) return false;
+  }
+  if (m.locallyPurchased !== 'होय' && m.locallyPurchased !== 'नाही') return false;
+  if (m.locallyPurchased === 'होय') {
+    if (m.locallyPurchasedQty === '' || m.locallyPurchasedQty === null || isNaN(Number(m.locallyPurchasedQty)) || Number(m.locallyPurchasedQty) <= 0) return false;
+  }
+  return true;
+}
+
+function updateCardCompletion(idx) {
+  var card = document.getElementById('mcard-' + idx);
+  var badge = document.getElementById('badge-' + idx);
+  var statusText = document.getElementById('statusText-' + idx);
+  var complete = isMaterialComplete(idx);
+
+  if (complete) {
+    card.classList.add('complete');
+    badge.className = 'mc-status-badge badge-complete';
+    badge.textContent = '✓ पूर्ण';
+    statusText.textContent = '✓ पूर्ण';
+    statusText.style.color = 'var(--green-text)';
+  } else {
+    card.classList.remove('complete');
+    badge.className = 'mc-status-badge badge-pending';
+    badge.textContent = 'प्रलंबित';
+    statusText.textContent = 'प्रलंबित';
+    statusText.style.color = 'var(--gray-600)';
+  }
+  updateProgress();
+}
+
+function renderSkippedNote(skippedCount) {
+  var existing = document.getElementById('skippedNote');
+  if (existing) existing.remove();
+  if (skippedCount <= 0) return;
+
+  var note = document.createElement('div');
+  note.id = 'skippedNote';
+  note.style.cssText = 'margin:0 0 14px; background:var(--gray-50); border:1px solid var(--gray-200); border-radius:var(--radius-sm); padding:10px 12px; font-size:12px; color:var(--gray-600); display:flex; gap:8px; align-items:flex-start;';
+  note.innerHTML = '<span>ℹ️</span><span>या स्थानकासाठी ' + skippedCount + ' मटेरियल लागू नाहीत म्हणून यादीत दाखवलेले नाहीत.</span>';
+  document.getElementById('materialList').prepend(note);
+}
+
+function escapeHtml(str) {
+  if (str === null || str === undefined) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+
+function updateProgress() {
+  var applicableIndices = [];
+  for (var k = 0; k < MATERIAL_STATE.length; k++) {
+    if (MATERIAL_STATE[k].applicable) applicableIndices.push(k);
+  }
+  var total = applicableIndices.length;
+
+  var completedCount = 0;
+  for (var i = 0; i < applicableIndices.length; i++) {
+    if (isMaterialComplete(applicableIndices[i])) completedCount++;
+  }
+
+  var pct = total ? Math.round((completedCount / total) * 100) : 100;
+
+  document.getElementById('progressCount').textContent = completedCount;
+  document.getElementById('progressFill').style.width = pct + '%';
+  document.getElementById('progressPct').textContent = pct + '%';
+
+  var progressTotalEl = document.querySelector('.progress-label .count .total');
+  if (progressTotalEl) progressTotalEl.textContent = ' / ' + total + ' पूर्ण';
+
+  var allDone = completedCount === total;
+  document.getElementById('submitOpenModalBtn').disabled = !allDone;
+  document.getElementById('bottomBarHint').textContent = allDone
+    ? 'सर्व मटेरियल्सची नोंद पूर्ण झाली — आता जमा करा'
+    : (total - completedCount) + ' मटेरियल्सची नोंद अद्याप प्रलंबित आहे';
+}
+
+// ====================================================================
+//  SCREEN 3 — सारांश मोडल
+// ====================================================================
+document.getElementById('submitOpenModalBtn').addEventListener('click', function () {
+  // अंतिम पडताळणी (सर्व्हरला कॉल करण्यापूर्वी क्लायंट-साईड चेक)
+  for (var i = 0; i < MATERIAL_STATE.length; i++) {
+    if (!isMaterialComplete(i)) {
+      showToast('मटेरियल क्र. ' + (i + 1) + ' ची नोंद अपूर्ण आहे.', true);
+      document.getElementById('mcard-' + i).scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return;
+    }
+  }
+  renderSummaryModal();
+  checkDuplicateBeforeShow();
+  var submitBtn = document.getElementById('finalSubmitBtn');
+  submitBtn.innerHTML = SELECTED.editMode
+    ? '<svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M5 13L9 17L19 7" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg> अपडेट करा'
+    : '<svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M5 13L9 17L19 7" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg> Google Sheet मध्ये जमा करा';
+  openModal();
+});
+
+function renderSummaryModal() {
+  document.getElementById('modalStation').textContent = SELECTED.station;
+  document.getElementById('modalDate').textContent = formatDateForSheet(SELECTED.date);
+
+  var sufficientCount = 0, insufficientCount = 0;
+  var totalGiven = 0, totalReceived = 0, totalExtra = 0;
+  var applicableTotal = 0;
+  var rowsHtml = '';
+
+  BASE_DATA.materials.forEach(function (mat, idx) {
+    var m = MATERIAL_STATE[idx];
+    if (!m.applicable) return; // लागू नसलेले मटेरियल सारांशात दाखवू नका
+
+    applicableTotal++;
+    var givenRaw = getGivenQty(mat.name);
+    var given = (givenRaw === '') ? 0 : Number(givenRaw);
+    var received = Number(m.received) || 0;
+    var extra = m.sufficient === 'नाही' ? (Number(m.extra) || 0) : 0;
+
+    totalGiven += given;
+    totalReceived += received;
+    totalExtra += extra;
+
+    if (m.sufficient === 'होय') sufficientCount++; else insufficientCount++;
+
+    rowsHtml +=
+      '<tr class="' + (m.sufficient === 'नाही' ? 'row-insufficient' : '') + '">' +
+        '<td style="text-align:right;">' + escapeHtml(mat.name) + '</td>' +
+        '<td>' + (givenRaw === '' ? '—' : givenRaw) + '</td>' +
+        '<td>' + received + '</td>' +
+        '<td><span class="pill ' + (m.sufficient === 'होय' ? 'pill-yes' : 'pill-no') + '">' + m.sufficient + '</span></td>' +
+        '<td>' + (m.sufficient === 'नाही' ? extra : '—') + '</td>' +
+      '</tr>';
+  });
+
+  document.getElementById('summaryTableBody').innerHTML = rowsHtml;
+  document.getElementById('footTotalGiven').textContent = totalGiven;
+  document.getElementById('footTotalReceived').textContent = totalReceived;
+  document.getElementById('footTotalExtra').textContent = totalExtra;
+  document.getElementById('kpiSufficient').textContent = sufficientCount;
+  document.getElementById('kpiInsufficient').textContent = insufficientCount;
+  document.getElementById('kpiTotal').textContent = applicableTotal;
+}
+
+function checkDuplicateBeforeShow() {
+  document.getElementById('dupWarning').classList.add('hidden');
+  document.getElementById('finalSubmitBtn').disabled = false;
+  if (SELECTED.editMode) return;
+  google.script.run
+    .withSuccessHandler(function (isDup) {
+      if (isDup) {
+        document.getElementById('dupDateDisplay').textContent = formatDateForSheet(SELECTED.date);
+        document.getElementById('dupWarning').classList.remove('hidden');
+        document.getElementById('finalSubmitBtn').disabled = true;
+      }
+    })
+    .withFailureHandler(function () {})
+    .checkDuplicateToday(SELECTED.district, SELECTED.station, formatDateForSheet(SELECTED.date));
+} 
+
+function openModal() {
+  document.getElementById('summaryModal').classList.remove('hidden');
+}
+function closeModal() {
+  document.getElementById('summaryModal').classList.add('hidden');
+}
+
+document.getElementById('backToEditBtn').addEventListener('click', closeModal);
+
+document.getElementById('finalSubmitBtn').addEventListener('click', function () {
+  var payload = {
+    district: SELECTED.district,
+    station: SELECTED.station,
+    pm: SELECTED.pm,
+    date: formatDateForSheet(SELECTED.date),
+    materials: MATERIAL_STATE.map(function (m) {
+      return {
+        applicable: m.applicable,
+        received: m.applicable ? m.received : '',
+        sufficient: m.applicable ? m.sufficient : '',
+        extra: (m.applicable && m.sufficient === 'नाही') ? m.extra : '',
+        locallyPurchased: m.applicable ? (m.locallyPurchased || 'नाही') : '',
+        locallyPurchasedQty: m.applicable ? (m.locallyPurchased === 'होय' ? m.locallyPurchasedQty : '') : ''
+      };
+    })
+  };
+
+  showLoading(SELECTED.editMode ? 'अपडेट करत आहे…' : 'जमा करत आहे…');
+  document.getElementById('finalSubmitBtn').disabled = true;
+
+  var successHandler = function (result) {
+    hideLoading();
+    if (!result.success) {
+      if (result.duplicateBlocked) {
+        document.getElementById('dupDateDisplay').textContent = formatDateForSheet(SELECTED.date);
+        document.getElementById('dupWarning').classList.remove('hidden');
+        document.getElementById('finalSubmitBtn').disabled = true;
+        showToast('या तारखेला आधीच नोंद झालेली आहे — सबमिट करता येणार नाही.', true);
+      } else {
+        showToast(result.error || 'त्रुटी आली.', true);
+      }
+      return;
+    }
+    closeModal();
+    renderSuccessScreen(result);
+    goToScreen('screen4');
+  };
+  var failureHandler = function (err) {
+    hideLoading();
+    document.getElementById('finalSubmitBtn').disabled = false;
+    showToast('सर्व्हर त्रुटी: ' + (err && err.message ? err.message : err), true);
+  };
+
+  if (SELECTED.editMode) {
+    google.script.run.withSuccessHandler(successHandler).withFailureHandler(failureHandler).updateResponse(payload);
+  } else {
+    google.script.run.withSuccessHandler(successHandler).withFailureHandler(failureHandler).submitResponse(payload);
+  }
+});
+
+// ====================================================================
+//  SCREEN 4 — यश स्क्रीन
+// ====================================================================
+function renderSuccessScreen(result) {
+  document.getElementById('successStation').textContent = SELECTED.station + ' (' + SELECTED.district + ')';
+  document.getElementById('successDate').textContent = formatDateForSheet(SELECTED.date);
+  var applicableTotal = result.summary.applicableCount || TOTAL_MATERIALS;
+  document.getElementById('successSuff').textContent = result.summary.sufficientCount + ' / ' + applicableTotal;
+  document.getElementById('successInsuff').textContent = result.summary.insufficientCount + ' / ' + applicableTotal;
+  document.getElementById('successExtra').textContent = result.summary.totalExtra;
+
+  if (result.updated) {
+    document.getElementById('successSub').textContent = 'नोंद यशस्वीरित्या अपडेट झाली — Google Sheet मध्ये बदल जतन झाले आहेत';
+  } else if (result.duplicateWarning) {
+    document.getElementById('successSub').textContent =
+      'टीप: या स्थानकाची आजच्या तारखेची आधीची नोंदही शीटमध्ये अस्तित्वात आहे.';
+  } else {
+    document.getElementById('successSub').textContent = 'स्थानकाची नोंद Google Sheet मध्ये जतन झाली आहे';
+  }
+}
+
+document.getElementById('newSurveyBtn').addEventListener('click', function () {
+  resetApp();
+  goToScreen('screen1');
+});
+
+function resetApp() {
+  SELECTED = { district: '', station: '', pm: '', date: '', editMode: false, editDate: '' };
+  MATERIAL_STATE = [];
+  ISSUED_QTY_MAP = {};
+  document.getElementById('districtSelect').value = '';
+  populateStationDropdown('');
+  updatePmField('');
+  var today = getTodayISTForInput();
+  var dateEl = document.getElementById('dateInput');
+  dateEl.value = today;
+  dateEl.max = today;   // ⬅️ future dates disabled
+  document.getElementById('goToScreen2Btn').disabled = true;
+  document.getElementById('topbarMeta').innerHTML = '';
+  document.getElementById('pastEntriesSection').classList.add('hidden');
+  document.getElementById('pastEntriesList').innerHTML = '';
+}
+
+// ====================================================================
+//  स्क्रीन नेव्हिगेशन
+// ====================================================================
+function goToScreen(screenId) {
+  ['screen1', 'screen2', 'screen4'].forEach(function (id) {
+    document.getElementById(id).classList.add('hidden');
+  });
+  document.getElementById(screenId).classList.remove('hidden');
+  window.scrollTo(0, 0);
+}
+
+// ====================================================================
+//  नवीन अपडेट पॉपअप
+// ====================================================================
+(function () {
+  var VERSION_KEY = 'msrtc_material_whats_new_v2';
+  var seen = false;
+  try { seen = !!localStorage.getItem(VERSION_KEY); } catch (e) {}
+  if (!seen) {
+    document.getElementById('whatsNewOverlay').classList.remove('hidden');
+  }
+  function dismissPopup() {
+    document.getElementById('whatsNewOverlay').classList.add('hidden');
+    try { localStorage.setItem(VERSION_KEY, '1'); } catch (e) {}
+  }
+  document.getElementById('whatsNewDismiss').addEventListener('click', dismissPopup);
+  document.getElementById('whatsNewOverlay').addEventListener('click', function (e) {
+    if (e.target === this) dismissPopup();
+  });
+})();
+
+// ====================================================================
+//  अॅप सुरू करा
+// ====================================================================
+initApp();
+</script>
+
+</body>
+</html>
