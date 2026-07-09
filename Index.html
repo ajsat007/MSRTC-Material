@@ -1793,8 +1793,8 @@ document.getElementById('finalSubmitBtn').addEventListener('click', function () 
         received: m.applicable ? m.received : '',
         sufficient: m.applicable ? m.sufficient : '',
         extra: (m.applicable && m.sufficient === 'नाही') ? m.extra : '',
-        locallyPurchased: m.applicable ? (m.locallyPurchased || 'नाही') : '',
-        locallyPurchasedQty: m.applicable ? (m.locallyPurchased === 'होय' ? m.locallyPurchasedQty : '') : ''
+        locallyPurchased: 'नाही',
+        locallyPurchasedQty: ''
       };
     })
   };

@@ -1123,9 +1123,7 @@ function updateResponse(payload) {
       }
     }
     // ---- नवीन: स्वतः स्थानिक पातळीवर खरेदी केले का? ----
-    if (m.locallyPurchased !== 'होय' && m.locallyPurchased !== 'नाही') {
-      return { success: false, error: 'मटेरियल क्र. ' + (i + 1) + ' साठी "स्वतः स्थानिक पातळीवर खरेदी केले का?" निवडलेले नाही.' };
-    }
+    // ---- स्वतः स्थानिक पातळीवर खरेदी — optional, default नाही ----
   }
   if (!anyApplicable) {
     return { success: false, error: 'या स्थानकासाठी कोणतेही मटेरियल लागू नाही.' };
@@ -1165,8 +1163,8 @@ function updateResponse(payload) {
       row.push(mat.sufficient);
       var extraVal = mat.sufficient === 'नाही' ? Number(mat.extra) : 0;
       row.push(extraVal);
-      row.push(mat.locallyPurchased || 'नाही');
-      row.push(mat.locallyPurchased === 'होय' ? (Number(mat.locallyPurchasedQty) || 0) : '');
+      row.push('नाही');  // locally purchased (not shown in UI)
+      row.push('');               // locally purchased qty
       if (mat.sufficient === 'होय') { sufficientCount++; }
       else { insufficientCount++; totalExtra += extraVal; }
     }
@@ -1250,9 +1248,7 @@ function submitResponse(payload) {
       }
     }
     // ---- नवीन: स्वतः स्थानिक पातळीवर खरेदी केले का? ----
-    if (m.locallyPurchased !== 'होय' && m.locallyPurchased !== 'नाही') {
-      return { success: false, error: 'मटेरियल क्र. ' + (i + 1) + ' साठी "स्वतः स्थानिक पातळीवर खरेदी केले का?" निवडलेले नाही.' };
-    }
+    // ---- स्वतः स्थानिक पातळीवर खरेदी — optional, default नाही ----
   }
   if (!anyApplicable) {
     return { success: false, error: 'या स्थानकासाठी कोणतेही मटेरियल लागू नाही. कृपया IssuedQty शीट तपासा.' };
@@ -1294,8 +1290,8 @@ function submitResponse(payload) {
       row.push(mat.sufficient);
       var extraVal = mat.sufficient === 'नाही' ? Number(mat.extra) : 0;
       row.push(extraVal);
-      row.push(mat.locallyPurchased || 'नाही');
-      row.push(mat.locallyPurchased === 'होय' ? (Number(mat.locallyPurchasedQty) || 0) : '');
+      row.push('नाही');  // locally purchased (not shown in UI)
+      row.push('');               // locally purchased qty
       if (mat.sufficient === 'होय') { sufficientCount++; }
       else { insufficientCount++; totalExtra += extraVal; }
     }
