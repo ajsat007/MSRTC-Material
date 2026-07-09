@@ -6,6 +6,33 @@ var SHEET_CONFIG     = 'Config';
 var TOTAL_MATERIALS  = 32;
 var COLS_PER_MATERIAL = 5;
 
+/**
+ * _detectColsPerMaterial — Responses शीटच्या हेडर रोवरून प्रत्यक्ष कॉलम संख्या डिटेक्ट करते.
+ * 🛑 हे महत्त्वाचे आहे: शीटमध्ये ३ किंवा ५ कॉलम असू शकतात.
+ *    getSubmissionForEdit() मध्ये ही डिटेक्ट केलेली व्हॅल्यू वापरली जाते,
+ *    जेणेकरून जुन्या (३-कॉलम) आणि नवीन (५-कॉलम) दोन्ही डेटा योग्यरीत्या वाचता येईल.
+ */
+function _detectColsPerMaterial() {
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheet = ss.getSheetByName(SHEET_RESPONSES);
+    if (!sheet || sheet.getLastRow() < 1) return COLS_PER_MATERIAL;
+    var lastCol = Math.min(sheet.getLastColumn(), 5 + TOTAL_MATERIALS * 5 + 10);
+    if (lastCol <= 5) return 3;
+    var headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+    var count = 0;
+    for (var i = 5; i < headers.length; i++) {
+      if (headers[i] && String(headers[i]).trim() !== '') count++;
+      else break;
+    }
+    if (count === 0) return 3;
+    var detected = Math.max(3, Math.round(count / TOTAL_MATERIALS));
+    return detected;
+  } catch (e) {
+    return COLS_PER_MATERIAL;
+  }
+}
+
 function doGet(e) {
   return HtmlService.createHtmlOutputFromFile('Index')
     .setTitle('MSRTC Mechanized Cleaning — Material Status')
@@ -79,6 +106,7 @@ function ensureResponsesSheet_() {
     sheet = ss.insertSheet(SHEET_RESPONSES);
   }
   if (sheet.getLastRow() === 0) {
+    // शीट रिकामी असल्यास संपूर्ण हेडर तयार करा
     var materials = getMaterialMasterRows_();
     var headers = ['Timestamp', 'District', 'Station', 'Project Manager', 'Date'];
     for (var i = 0; i < materials.length; i++) {
@@ -94,6 +122,50 @@ function ensureResponsesSheet_() {
     sheet.setFrozenRows(1);
     sheet.setFrozenColumns(5);
     sheet.autoResizeColumns(1, headers.length);
+  } else {
+    // शीटमध्ये डेटा आहे पण हेडर कमी असतील तर पूर्ण करा
+    var expectedCols = 5 + TOTAL_MATERIALS * 5;
+    var actualCols = sheet.getLastColumn();
+    if (actualCols < expectedCols) {
+      var hRow = sheet.getRange(1, 1, 1, actualCols).getValues()[0];
+      var existingMatHeadings = 0;
+      for (var c = 5; c < hRow.length; c++) {
+        if (hRow[c] && String(hRow[c]).trim() !== '') existingMatHeadings++;
+      }
+      var existingColsPerMat = existingMatHeadings > 0 ? Math.round(existingMatHeadings / TOTAL_MATERIALS) : 0;
+      if (existingColsPerMat < 5) {
+        var materials = getMaterialMasterRows_();
+        var addHeaders = [];
+        for (var mi = 0; mi < materials.length; mi++) {
+          var mn = materials[mi][1];
+          if (existingColsPerMat <= 0) {
+            addHeaders.push(mn + ' - Received');
+            addHeaders.push(mn + ' - Sufficient');
+            addHeaders.push(mn + ' - Extra');
+            addHeaders.push(mn + ' - Locally Purchased');
+            addHeaders.push(mn + ' - Locally Purchased Qty');
+          } else if (existingColsPerMat === 1) {
+            addHeaders.push(mn + ' - Sufficient');
+            addHeaders.push(mn + ' - Extra');
+            addHeaders.push(mn + ' - Locally Purchased');
+            addHeaders.push(mn + ' - Locally Purchased Qty');
+          } else if (existingColsPerMat === 2) {
+            addHeaders.push(mn + ' - Extra');
+            addHeaders.push(mn + ' - Locally Purchased');
+            addHeaders.push(mn + ' - Locally Purchased Qty');
+          } else if (existingColsPerMat === 3) {
+            addHeaders.push(mn + ' - Locally Purchased');
+            addHeaders.push(mn + ' - Locally Purchased Qty');
+          } else if (existingColsPerMat === 4) {
+            addHeaders.push(mn + ' - Locally Purchased Qty');
+          }
+        }
+        if (addHeaders.length > 0) {
+          sheet.getRange(1, actualCols + 1, 1, addHeaders.length).setValues([addHeaders]);
+          sheet.getRange(1, actualCols + 1, 1, addHeaders.length).setFontWeight('bold').setBackground('#002B6B').setFontColor('#FFFFFF');
+        }
+      }
+    }
   }
 }
 
@@ -960,9 +1032,9 @@ function deleteResponse(district, station, dateStr) {
  * हे फंक्शन district/station नावांची तुलना करताना उपयोगी आहे.
  */
 function _cleanStr(str) {
-  return String(str || '')
-    .replace(/[\s ​‌‍﻿ -‏    　]+/g, ' ')
-    .trim();
+  var s = String(str || '');
+  try { s = s.normalize('NFC'); } catch (e) {}
+  return s.replace(/[\s ​‌‍﻿ -‏    　]+/g, ' ').trim();
 }
 
 /**
@@ -1051,6 +1123,7 @@ function findResponseRow_(sheet, district, station, dateStr) {
 
 /**
  * getSubmissionForEdit — एका विशिष्ट नोंदीचा संपूर्ण मटेरियल डेटा परत करते (pre-fill साठी).
+ * _detectColsPerMaterial() वापरते — शीटमध्ये ३ किंवा ५ कॉलम असले तरी चालेल.
  */
 function getSubmissionForEdit(district, station, dateStr) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -1060,17 +1133,18 @@ function getSubmissionForEdit(district, station, dateStr) {
   var targetRow = findResponseRow_(sheet, district, station, dateStr);
   if (targetRow === -1) return null;
 
-  var totalCols = 5 + (TOTAL_MATERIALS * COLS_PER_MATERIAL);
-  var rowData = sheet.getRange(targetRow, 1, 1, totalCols).getValues()[0];
+  var colsPerMat = _detectColsPerMaterial();
+  var readCols = 5 + (TOTAL_MATERIALS * colsPerMat);
+  var rowData = sheet.getRange(targetRow, 1, 1, readCols).getValues()[0];
 
   var materials = [];
   for (var j = 0; j < TOTAL_MATERIALS; j++) {
-    var base = 5 + (j * COLS_PER_MATERIAL);
+    var base = 5 + (j * colsPerMat);
     var received = rowData[base];
     var sufficient = rowData[base + 1];
     var extra = rowData[base + 2];
-    var lp = rowData[base + 3];
-    var lpQty = rowData[base + 4];
+    var lp = (colsPerMat >= 5) ? rowData[base + 3] : '';
+    var lpQty = (colsPerMat >= 5) ? rowData[base + 4] : '';
 
     var applicable = (received !== 'N/A');
     materials.push({
@@ -1149,13 +1223,15 @@ function updateResponse(payload) {
     }
 
     var timestamp = Utilities.formatDate(new Date(), 'Asia/Kolkata', 'dd/MM/yyyy HH:mm:ss');
+    var targetColsPerMat = _detectColsPerMaterial();  // match existing row format
     var row = [timestamp, payload.district, payload.station, payload.pm, payload.date];
 
     var sufficientCount = 0, insufficientCount = 0, totalExtra = 0, applicableCount = 0;
     for (var j = 0; j < payload.materials.length; j++) {
       var mat = payload.materials[j];
       if (!mat.applicable) {
-        row.push('N/A'); row.push('N/A'); row.push(''); row.push('N/A'); row.push('');
+        row.push('N/A'); row.push('N/A'); row.push('');
+        if (targetColsPerMat >= 5) { row.push('N/A'); row.push(''); }
         continue;
       }
       applicableCount++;
@@ -1163,8 +1239,7 @@ function updateResponse(payload) {
       row.push(mat.sufficient);
       var extraVal = mat.sufficient === 'नाही' ? Number(mat.extra) : 0;
       row.push(extraVal);
-      row.push('नाही');  // locally purchased (not shown in UI)
-      row.push('');               // locally purchased qty
+      if (targetColsPerMat >= 5) { row.push('नाही'); row.push(''); }
       if (mat.sufficient === 'होय') { sufficientCount++; }
       else { insufficientCount++; totalExtra += extraVal; }
     }
@@ -1275,6 +1350,7 @@ function submitResponse(payload) {
     var sheet = ss.getSheetByName(SHEET_RESPONSES);
 
     var timestamp = Utilities.formatDate(new Date(), 'Asia/Kolkata', 'dd/MM/yyyy HH:mm:ss');
+    var newColsPerMat = _detectColsPerMaterial();  // ensureResponsesSheet ने हेडर अपडेट केल्यावर डिटेक्ट करतो
     var row = [timestamp, payload.district, payload.station, payload.pm, payload.date];
 
     var sufficientCount = 0, insufficientCount = 0, totalExtra = 0, applicableCount = 0;
@@ -1282,7 +1358,8 @@ function submitResponse(payload) {
    for (var j = 0; j < payload.materials.length; j++) {
       var mat = payload.materials[j];
       if (!mat.applicable) {
-        row.push('N/A'); row.push('N/A'); row.push(''); row.push('N/A'); row.push('');
+        row.push('N/A'); row.push('N/A'); row.push('');
+        if (newColsPerMat >= 5) { row.push('N/A'); row.push(''); }
         continue;
       }
       applicableCount++;
@@ -1290,8 +1367,7 @@ function submitResponse(payload) {
       row.push(mat.sufficient);
       var extraVal = mat.sufficient === 'नाही' ? Number(mat.extra) : 0;
       row.push(extraVal);
-      row.push('नाही');  // locally purchased (not shown in UI)
-      row.push('');               // locally purchased qty
+      if (newColsPerMat >= 5) { row.push('नाही'); row.push(''); }
       if (mat.sufficient === 'होय') { sufficientCount++; }
       else { insufficientCount++; totalExtra += extraVal; }
     }
