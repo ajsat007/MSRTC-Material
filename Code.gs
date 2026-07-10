@@ -17,17 +17,14 @@ function _detectColsPerMaterial() {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var sheet = ss.getSheetByName(SHEET_RESPONSES);
     if (!sheet || sheet.getLastRow() < 1) return COLS_PER_MATERIAL;
-    var lastCol = Math.min(sheet.getLastColumn(), 5 + TOTAL_MATERIALS * 5 + 10);
-    if (lastCol <= 5) return 3;
-    var headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
-    var count = 0;
-    for (var i = 5; i < headers.length; i++) {
-      if (headers[i] && String(headers[i]).trim() !== '') count++;
-      else break;
-    }
-    if (count === 0) return 3;
-    var detected = Math.max(3, Math.round(count / TOTAL_MATERIALS));
-    return detected;
+    // 🛑 शीटच्या एकूण रुंदीवरून कॉलम संख्या ठरवा (हेडरवरून नाही)
+    // कारण हेडर जुन्या ३-कॉलम फॉरमॅटमध्ये असू शकतो, पण डेटा ५-कॉलममध्ये
+    var maxCol = sheet.getLastColumn();
+    if (maxCol <= 5) return 3;
+    var dataCols = Math.min(maxCol - 5, TOTAL_MATERIALS * 5);
+    if (dataCols <= 0) return 3;
+    var detected = Math.round(dataCols / TOTAL_MATERIALS);
+    return Math.max(3, Math.min(5, detected));
   } catch (e) {
     return COLS_PER_MATERIAL;
   }
@@ -1124,7 +1121,8 @@ function findResponseRow_(sheet, district, station, dateStr) {
 
 /**
  * getSubmissionForEdit — एका विशिष्ट नोंदीचा संपूर्ण मटेरियल डेटा परत करते (pre-fill साठी).
- * _detectColsPerMaterial() वापरते — शीटमध्ये ३ किंवा ५ कॉलम असले तरी चालेल.
+ * 🛑 प्रत्येक ओळीच्या स्वतःच्या रुंदीवरून colsPerMat डिटेक्ट करते.
+ * जुन्या (३-कॉलम) आणि नवीन (५-कॉलम) दोन्ही डेटा योग्यरीत्या वाचता येतो.
  */
 function getSubmissionForEdit(district, station, dateStr) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -1134,9 +1132,18 @@ function getSubmissionForEdit(district, station, dateStr) {
   var targetRow = findResponseRow_(sheet, district, station, dateStr);
   if (targetRow === -1) return null;
 
-  var colsPerMat = _detectColsPerMaterial();
-  var readCols = 5 + (TOTAL_MATERIALS * colsPerMat);
-  var rowData = sheet.getRange(targetRow, 1, 1, readCols).getValues()[0];
+  // 🛑 प्रत्येक ओळीची खरी रुंदी तपासा — हेडरवरून नाही
+  var maxCol = sheet.getLastColumn();
+  var rowRange = sheet.getRange(targetRow, 1, 1, maxCol);
+  var rowData = rowRange.getValues()[0];
+  // शेवटचा non-empty सेल शोधा
+  var lastDataCol = maxCol - 1;
+  while (lastDataCol >= 5 && (rowData[lastDataCol] === '' || rowData[lastDataCol] === null || rowData[lastDataCol] === undefined)) {
+    lastDataCol--;
+  }
+  var actualCols = Math.max(5, lastDataCol + 1);
+  var colsPerMat = Math.round((actualCols - 5) / TOTAL_MATERIALS);
+  colsPerMat = Math.max(3, Math.min(5, colsPerMat));
 
   var materials = [];
   for (var j = 0; j < TOTAL_MATERIALS; j++) {
