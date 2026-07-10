@@ -1132,27 +1132,29 @@ function getSubmissionForEdit(district, station, dateStr) {
   var targetRow = findResponseRow_(sheet, district, station, dateStr);
   if (targetRow === -1) return null;
 
-  // 🛑 प्रत्येक ओळीची खरी रुंदी तपासा — हेडरवरून नाही
+  // 🛑 शीटची रचना: [5 meta cols] + [32×3 (R,S,E)] + [32×2 (LP, LPQty)]
+  // म्हणून 5 + j*3 वरून R,S,E वाचा, आणि 5+96 + j*2 वरून LP, LPQty वाचा
   var maxCol = sheet.getLastColumn();
   var rowRange = sheet.getRange(targetRow, 1, 1, maxCol);
   var rowData = rowRange.getValues()[0];
-  // शेवटचा non-empty सेल शोधा
-  var lastDataCol = maxCol - 1;
-  while (lastDataCol >= 5 && (rowData[lastDataCol] === '' || rowData[lastDataCol] === null || rowData[lastDataCol] === undefined)) {
-    lastDataCol--;
-  }
-  var actualCols = Math.max(5, lastDataCol + 1);
-  var colsPerMat = Math.round((actualCols - 5) / TOTAL_MATERIALS);
-  colsPerMat = Math.max(3, Math.min(5, colsPerMat));
+  var hasLP = (maxCol >= 5 + TOTAL_MATERIALS * 3 + 1);
+  var RSE_START = 5;
+  var LP_START = 5 + TOTAL_MATERIALS * 3;
 
   var materials = [];
   for (var j = 0; j < TOTAL_MATERIALS; j++) {
-    var base = 5 + (j * colsPerMat);
-    var received = rowData[base];
-    var sufficient = rowData[base + 1];
-    var extra = rowData[base + 2];
-    var lp = (colsPerMat >= 5) ? rowData[base + 3] : '';
-    var lpQty = (colsPerMat >= 5) ? rowData[base + 4] : '';
+    var baseRSE = RSE_START + (j * 3);
+    var received = rowData[baseRSE];
+    var sufficient = rowData[baseRSE + 1];
+    var extra = rowData[baseRSE + 2];
+    if (hasLP) {
+      var baseLP = LP_START + (j * 2);
+      var lp = rowData[baseLP];
+      var lpQty = rowData[baseLP + 1];
+    } else {
+      var lp = '';
+      var lpQty = '';
+    }
 
     var applicable = (received !== 'N/A');
     materials.push({
@@ -1235,26 +1237,28 @@ function updateResponse(payload) {
     }
 
     var timestamp = Utilities.formatDate(new Date(), 'Asia/Kolkata', 'dd/MM/yyyy HH:mm:ss');
-    var targetColsPerMat = _detectColsPerMaterial();  // match existing row format
-    var row = [timestamp, payload.district, payload.station, payload.pm, payload.date];
-
+    // 🛑 शीट रचना: [5 meta] + [32×3 RSE] + [32×2 LP] — दोन ब्लॉकमध्ये लिहा
+    var rseBlock = [];
+    var lpBlock = [];
     var sufficientCount = 0, insufficientCount = 0, totalExtra = 0, applicableCount = 0;
     for (var j = 0; j < payload.materials.length; j++) {
       var mat = payload.materials[j];
       if (!mat.applicable) {
-        row.push('N/A'); row.push('N/A'); row.push('');
-        if (targetColsPerMat >= 5) { row.push('N/A'); row.push(''); }
+        rseBlock.push('N/A'); rseBlock.push('N/A'); rseBlock.push('');
+        lpBlock.push('N/A'); lpBlock.push('');
         continue;
       }
       applicableCount++;
-      row.push(Number(mat.received));
-      row.push(mat.sufficient);
+      rseBlock.push(Number(mat.received));
+      rseBlock.push(mat.sufficient);
       var extraVal = mat.sufficient === 'नाही' ? Number(mat.extra) : 0;
-      row.push(extraVal);
-      if (targetColsPerMat >= 5) { row.push('नाही'); row.push(''); }
+      rseBlock.push(extraVal);
+      lpBlock.push('नाही'); lpBlock.push('');
       if (mat.sufficient === 'होय') { sufficientCount++; }
       else { insufficientCount++; totalExtra += extraVal; }
     }
+    var row = [timestamp, payload.district, payload.station, payload.pm, payload.date]
+      .concat(rseBlock).concat(lpBlock);
 
     sheet.getRange(targetRow, 1, 1, row.length).setValues([row]);
     touchConfigLastUpdated_();
@@ -1366,27 +1370,29 @@ function submitResponse(payload) {
     var sheet = ss.getSheetByName(SHEET_RESPONSES);
 
     var timestamp = Utilities.formatDate(new Date(), 'Asia/Kolkata', 'dd/MM/yyyy HH:mm:ss');
-    var newColsPerMat = _detectColsPerMaterial();  // ensureResponsesSheet ने हेडर अपडेट केल्यावर डिटेक्ट करतो
-    var row = [timestamp, payload.district, payload.station, payload.pm, payload.date];
-
+    // 🛑 शीट रचना: [5 meta] + [32×3 RSE] + [32×2 LP] — दोन ब्लॉकमध्ये लिहा
+    var rseBlock = [];
+    var lpBlock = [];
     var sufficientCount = 0, insufficientCount = 0, totalExtra = 0, applicableCount = 0;
 
    for (var j = 0; j < payload.materials.length; j++) {
       var mat = payload.materials[j];
       if (!mat.applicable) {
-        row.push('N/A'); row.push('N/A'); row.push('');
-        if (newColsPerMat >= 5) { row.push('N/A'); row.push(''); }
+        rseBlock.push('N/A'); rseBlock.push('N/A'); rseBlock.push('');
+        lpBlock.push('N/A'); lpBlock.push('');
         continue;
       }
       applicableCount++;
-      row.push(Number(mat.received));
-      row.push(mat.sufficient);
+      rseBlock.push(Number(mat.received));
+      rseBlock.push(mat.sufficient);
       var extraVal = mat.sufficient === 'नाही' ? Number(mat.extra) : 0;
-      row.push(extraVal);
-      if (newColsPerMat >= 5) { row.push('नाही'); row.push(''); }
+      rseBlock.push(extraVal);
+      lpBlock.push('नाही'); lpBlock.push('');
       if (mat.sufficient === 'होय') { sufficientCount++; }
       else { insufficientCount++; totalExtra += extraVal; }
     }
+    var row = [timestamp, payload.district, payload.station, payload.pm, payload.date]
+      .concat(rseBlock).concat(lpBlock);
 
     sheet.appendRow(row);
     touchConfigLastUpdated_();
