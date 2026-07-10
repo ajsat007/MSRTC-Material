@@ -1188,12 +1188,12 @@ function updateResponse(payload) {
       if (m.extra === '' || m.extra === null || m.extra === undefined || isNaN(extraNum) || extraNum <= 0) {
         return { success: false, error: 'मटेरियल क्र. ' + (i + 1) + ' साठी "अतिरिक्त आवश्यक संख्या" भरलेली नाही.' };
       }
-      var issuedQtyForThis = Number(m.issuedQty) || 0;
-      var maxAllowedExtra = Math.ceil(issuedQtyForThis * 0.4);
-      if (issuedQtyForThis > 0 && extraNum > maxAllowedExtra) {
+      var receivedQtyForThis = Number(m.received) || 0;
+      var maxAllowedExtra = Math.ceil(receivedQtyForThis * 0.4);
+      if (receivedQtyForThis > 0 && extraNum > maxAllowedExtra) {
         return {
           success: false,
-          error: 'मटेरियल क्र. ' + (i + 1) + ' साठी अतिरिक्त संख्या (' + extraNum + ') अनुज्ञेय कमाल मर्यादेपेक्षा (' + maxAllowedExtra + ' — दिलेल्या संख्येच्या 40%) जास्त आहे.'
+          error: 'मटेरियल क्र. ' + (i + 1) + ' साठी अतिरिक्त संख्या (' + extraNum + ') अनुज्ञेय कमाल मर्यादेपेक्षा (' + maxAllowedExtra + ' — प्राप्त संख्येच्या 40%) जास्त आहे.'
         };
       }
     }
@@ -1314,12 +1314,12 @@ function submitResponse(payload) {
         return { success: false, error: 'मटेरियल क्र. ' + (i + 1) + ' साठी "अतिरिक्त आवश्यक संख्या" भरलेली नाही.' };
       }
       // ---- नवीन: अतिरिक्त संख्या Issued Qty च्या जास्तीत जास्त 40% पर्यंतच मर्यादित ----
-      var issuedQtyForThis = Number(m.issuedQty) || 0;
-      var maxAllowedExtra = Math.ceil(issuedQtyForThis * 0.4);
-      if (issuedQtyForThis > 0 && extraNum > maxAllowedExtra) {
+      var receivedQtyForThis = Number(m.received) || 0;
+      var maxAllowedExtra = Math.ceil(receivedQtyForThis * 0.4);
+      if (receivedQtyForThis > 0 && extraNum > maxAllowedExtra) {
         return {
           success: false,
-          error: 'मटेरियल क्र. ' + (i + 1) + ' साठी अतिरिक्त संख्या (' + extraNum + ') अनुज्ञेय कमाल मर्यादेपेक्षा (' + maxAllowedExtra + ' — दिलेल्या संख्येच्या 40%) जास्त आहे. कृपया योग्य संख्या नमूद करा.'
+          error: 'मटेरियल क्र. ' + (i + 1) + ' साठी अतिरिक्त संख्या (' + extraNum + ') अनुज्ञेय कमाल मर्यादेपेक्षा (' + maxAllowedExtra + ' — प्राप्त संख्येच्या 40%) जास्त आहे. कृपया योग्य संख्या नमूद करा.'
         };
       }
     }

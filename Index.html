@@ -1474,8 +1474,8 @@ function getGivenQty(materialName) {
 }
 
 function getMaxAllowedExtra(idx) {
-  var issued = MATERIAL_STATE[idx].issuedQty || 0;
-  return Math.ceil(issued * 0.4);
+  var received = Number(MATERIAL_STATE[idx].received) || 0;
+  return Math.ceil(received * 0.4);
 }
 
 function renderMaterialCards() {
@@ -1534,7 +1534,7 @@ function renderMaterialCards() {
         '</div>' +
 
         '<div class="mc-row extra-row hidden" id="extraWrap-' + idx + '">' +
-          '<div class="mc-row-label">अतिरिक्त लागणारी आवश्यक मटेरियल (कमाल ' + maxExtra + ' ' + escapeHtml(mat.unit) + ' — दिलेल्या संख्येच्या 40%) <span class="req">*</span></div>' +
+          '<div class="mc-row-label">अतिरिक्त लागणारी आवश्यक मटेरियल (कमाल ' + maxExtra + ' ' + escapeHtml(mat.unit) + ' — प्राप्त संख्येच्या 40%) <span class="req">*</span></div>' +
           '<div class="mc-row-control">' +
             '<div style="display:flex; flex-direction:column; align-items:flex-end;">' +
               '<div class="qty-input-compact">' +
