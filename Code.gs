@@ -4,31 +4,9 @@ var SHEET_ISSUEDQTY  = 'IssuedQty';
 var SHEET_DASHBOARD  = 'Dashboard';
 var SHEET_CONFIG     = 'Config';
 var TOTAL_MATERIALS  = 32;
+// Note: Sheet layout is two blocks — [5 meta] + [32×3 RSE] + [32×2 LP]
+// Reading uses 5 + j*3 for RSE, writing uses both blocks
 var COLS_PER_MATERIAL = 5;
-
-/**
- * _detectColsPerMaterial — Responses शीटच्या हेडर रोवरून प्रत्यक्ष कॉलम संख्या डिटेक्ट करते.
- * 🛑 हे महत्त्वाचे आहे: शीटमध्ये ३ किंवा ५ कॉलम असू शकतात.
- *    getSubmissionForEdit() मध्ये ही डिटेक्ट केलेली व्हॅल्यू वापरली जाते,
- *    जेणेकरून जुन्या (३-कॉलम) आणि नवीन (५-कॉलम) दोन्ही डेटा योग्यरीत्या वाचता येईल.
- */
-function _detectColsPerMaterial() {
-  try {
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
-    var sheet = ss.getSheetByName(SHEET_RESPONSES);
-    if (!sheet || sheet.getLastRow() < 1) return COLS_PER_MATERIAL;
-    // 🛑 शीटच्या एकूण रुंदीवरून कॉलम संख्या ठरवा (हेडरवरून नाही)
-    // कारण हेडर जुन्या ३-कॉलम फॉरमॅटमध्ये असू शकतो, पण डेटा ५-कॉलममध्ये
-    var maxCol = sheet.getLastColumn();
-    if (maxCol <= 5) return 3;
-    var dataCols = Math.min(maxCol - 5, TOTAL_MATERIALS * 5);
-    if (dataCols <= 0) return 3;
-    var detected = Math.round(dataCols / TOTAL_MATERIALS);
-    return Math.max(3, Math.min(5, detected));
-  } catch (e) {
-    return COLS_PER_MATERIAL;
-  }
-}
 
 function doGet(e) {
   return HtmlService.createHtmlOutputFromFile('Index')
