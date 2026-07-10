@@ -1189,12 +1189,16 @@ function updateResponse(payload) {
         return { success: false, error: 'मटेरियल क्र. ' + (i + 1) + ' साठी "अतिरिक्त आवश्यक संख्या" भरलेली नाही.' };
       }
       var receivedQtyForThis = Number(m.received) || 0;
-      var maxAllowedExtra = Math.ceil(receivedQtyForThis * 0.4);
-      if (receivedQtyForThis > 0 && extraNum > maxAllowedExtra) {
-        return {
-          success: false,
-          error: 'मटेरियल क्र. ' + (i + 1) + ' साठी अतिरिक्त संख्या (' + extraNum + ') अनुज्ञेय कमाल मर्यादेपेक्षा (' + maxAllowedExtra + ' — प्राप्त संख्येच्या 40%) जास्त आहे.'
-        };
+      var issuedQtyForThis = Number(m.issuedQty) || 0;
+      // आपत्कालीन: प्राप्त संख्या < दिलेली संख्या असल्यास मर्यादा नाही
+      if (receivedQtyForThis >= issuedQtyForThis) {
+        var maxAllowedExtra = Math.ceil(receivedQtyForThis * 0.4);
+        if (receivedQtyForThis > 0 && extraNum > maxAllowedExtra) {
+          return {
+            success: false,
+            error: 'मटेरियल क्र. ' + (i + 1) + ' साठी अतिरिक्त संख्या (' + extraNum + ') अनुज्ञेय कमाल मर्यादेपेक्षा (' + maxAllowedExtra + ' — प्राप्त संख्येच्या 40%) जास्त आहे.'
+          };
+        }
       }
     }
     // ---- नवीन: स्वतः स्थानिक पातळीवर खरेदी केले का? ----
@@ -1315,12 +1319,16 @@ function submitResponse(payload) {
       }
       // ---- नवीन: अतिरिक्त संख्या Issued Qty च्या जास्तीत जास्त 40% पर्यंतच मर्यादित ----
       var receivedQtyForThis = Number(m.received) || 0;
-      var maxAllowedExtra = Math.ceil(receivedQtyForThis * 0.4);
-      if (receivedQtyForThis > 0 && extraNum > maxAllowedExtra) {
-        return {
-          success: false,
-          error: 'मटेरियल क्र. ' + (i + 1) + ' साठी अतिरिक्त संख्या (' + extraNum + ') अनुज्ञेय कमाल मर्यादेपेक्षा (' + maxAllowedExtra + ' — प्राप्त संख्येच्या 40%) जास्त आहे. कृपया योग्य संख्या नमूद करा.'
-        };
+      var issuedQtyForThis = Number(m.issuedQty) || 0;
+      // आपत्कालीन: प्राप्त संख्या < दिलेली संख्या असल्यास मर्यादा नाही
+      if (receivedQtyForThis >= issuedQtyForThis) {
+        var maxAllowedExtra = Math.ceil(receivedQtyForThis * 0.4);
+        if (receivedQtyForThis > 0 && extraNum > maxAllowedExtra) {
+          return {
+            success: false,
+            error: 'मटेरियल क्र. ' + (i + 1) + ' साठी अतिरिक्त संख्या (' + extraNum + ') अनुज्ञेय कमाल मर्यादेपेक्षा (' + maxAllowedExtra + ' — प्राप्त संख्येच्या 40%) जास्त आहे. कृपया योग्य संख्या नमूद करा.'
+          };
+        }
       }
     }
     // ---- नवीन: स्वतः स्थानिक पातळीवर खरेदी केले का? ----

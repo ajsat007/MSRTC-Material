@@ -1475,6 +1475,9 @@ function getGivenQty(materialName) {
 
 function getMaxAllowedExtra(idx) {
   var received = Number(MATERIAL_STATE[idx].received) || 0;
+  var issued = Number(MATERIAL_STATE[idx].issuedQty) || 0;
+  // received < issued = emergency, no cap
+  if (received < issued) return Infinity;
   return Math.ceil(received * 0.4);
 }
 
@@ -1614,7 +1617,7 @@ function isMaterialComplete(idx) {
   if (m.sufficient === 'नाही') {
     if (m.extra === '' || m.extra === null || isNaN(Number(m.extra)) || Number(m.extra) <= 0) return false;
     var maxAllowed = getMaxAllowedExtra(idx);
-    if (maxAllowed > 0 && Number(m.extra) > maxAllowed) return false; // ⬅️ 40% कॅप पडताळणी
+    if (isFinite(maxAllowed) && maxAllowed > 0 && Number(m.extra) > maxAllowed) return false;
   }
   return true;
 }
