@@ -1,13 +1,25 @@
+/* ========================================================================
+   MSRTC MECHANIZED CLEANING — MATERIAL STATUS (SERVER)
+   Google Apps Script — production-ready
+   ======================================================================== */
+
+// ---- Sheet names ----
 var SHEET_BASE       = 'Base';
 var SHEET_RESPONSES  = 'Responses';
 var SHEET_ISSUEDQTY  = 'IssuedQty';
 var SHEET_DASHBOARD  = 'Dashboard';
 var SHEET_CONFIG     = 'Config';
-var TOTAL_MATERIALS  = 32;
-// Note: Sheet layout is two blocks — [5 meta] + [32×3 RSE] + [32×2 LP]
-// Reading uses 5 + j*3 for RSE, writing uses both blocks
-var COLS_PER_MATERIAL = 5;
 
+// ---- Constants ----
+var TOTAL_MATERIALS  = 32;
+var APP_VERSION      = '2.1';
+
+// Sheet layout: [5 meta cols] + [32×3 (Received,Sufficient,Extra)]  +  [32×2 (LocallyPurchased, LP Qty)]
+// RSE = cols 6-101 (5 + j*3), LP = cols 102-165 (5+96 + j*2)
+
+// ======================================================================
+//  doGet — serve the web app
+// ======================================================================
 function doGet(e) {
   return HtmlService.createHtmlOutputFromFile('Index')
     .setTitle('MSRTC Mechanized Cleaning — Material Status')
@@ -15,29 +27,22 @@ function doGet(e) {
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
-/**
- * setupBaseSheet — Base शीट एकदाच तयार करते आणि सर्व डेटा भरते.
- * Apps Script एडिटरमध्ये उघडून हे फंक्शन एकदा मॅन्युअली रन करा (Run > setupBaseSheet).
- * हे आधीपासून अस्तित्वात असलेली "Base" शीट साफ करून पुन्हा भरेल.
- */
+// ======================================================================
+//  SETUP — run once manually (Run → setupBaseSheet)
+// ======================================================================
 function setupBaseSheet() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sheet = ss.getSheetByName(SHEET_BASE);
-  if (!sheet) {
-    sheet = ss.insertSheet(SHEET_BASE);
-  } else {
-    sheet.clear();
-  }
+  if (!sheet) { sheet = ss.insertSheet(SHEET_BASE); } else { sheet.clear(); }
 
-  // ---- Section A: Project Manager | District | Station ----
+  // Section A: PM | District | Station
   var pmData = getPmDistrictStationRows_();
-
   var headerA = ['Project Manager', 'District', 'Station'];
   sheet.getRange(1, 1, 1, 3).setValues([headerA]);
   sheet.getRange(2, 1, pmData.length, 3).setValues(pmData);
   sheet.getRange(1, 1, 1, 3).setFontWeight('bold').setBackground('#002B6B').setFontColor('#FFFFFF');
 
-  // ---- Section B: Sr.No | Material Name | Unit | Default Issued Qty ----
+  // Section B: Sr.No | Material Name | Unit | Default Issued Qty
   var materials = getMaterialMasterRows_();
   var headerB = ['Sr.No', 'Material Name', 'Unit', 'Default Issued Qty'];
   sheet.getRange(1, 5, 1, 4).setValues([headerB]);
@@ -47,187 +52,1036 @@ function setupBaseSheet() {
   sheet.setFrozenRows(1);
   sheet.autoResizeColumns(1, 8);
 
-  // ---- Responses शीट तयार करा (नसेल तर) ----
   ensureResponsesSheet_();
-
-  // ---- IssuedQty शीट तयार करा (स्थानकनिहाय मटेरियल संख्या भरण्यासाठी) ----
   setupIssuedQtySheet_();
-
-  // ---- Dashboard शीट तयार करा (नसेल तर) ----
   ensureDashboardSheet_();
-
-  // ---- Config शीट तयार करा (नसेल तर) ----
   ensureConfigSheet_();
 
   SpreadsheetApp.getActiveSpreadsheet().toast(
-    'Base sheet तयार झाली: ' + pmData.length + ' स्थानके, ' + materials.length + ' मटेरियल्स. ' +
-    'IssuedQty शीटमध्ये ' + (pmData.length * materials.length) + ' ओळी तयार झाल्या — कृपया Qty कॉलम भरा.',
+    'Base sheet तयार: ' + pmData.length + ' स्थानके, ' + materials.length + ' मटेरियल्स.',
     'सेटअप पूर्ण', 10
   );
 }
 
-/**
- * ensureResponsesSheet_ — Responses शीट व हेडर रो तयार करते (नसेल तर).
- * प्रत्येक मटेरियलसाठी 5 कॉलम तयार होतात, आणि कॉलम नावात "Mat1" ऐवजी
- * प्रत्यक्ष मटेरियल नाव वापरले जाते (वाचनीयतेसाठी), उदा.:
- *   "Step Ladder Aluminum - Received" | "Step Ladder Aluminum - Sufficient" | "Step Ladder Aluminum - Extra"
- * क्रम नेहमी Sr.No (1 ते 32) नुसार स्थिर राहतो, जरी काही स्थानकांसाठी
- * काही मटेरियल लागू नसले (त्या स्लॉटमध्ये N/A लिहिले जाते).
- */
 function ensureResponsesSheet_() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sheet = ss.getSheetByName(SHEET_RESPONSES);
-  if (!sheet) {
-    sheet = ss.insertSheet(SHEET_RESPONSES);
+  if (!sheet) { sheet = ss.insertSheet(SHEET_RESPONSES); }
+  if (sheet.getLastRow() > 0) return; // already has a header row
+
+  var materials = getMaterialMasterRows_();
+  var headers = ['Timestamp', 'District', 'Station', 'Project Manager', 'Date'];
+  for (var i = 0; i < materials.length; i++) {
+    var mn = materials[i][1];
+    headers.push(mn + ' - Received');
+    headers.push(mn + ' - Sufficient');
+    headers.push(mn + ' - Extra');
+    headers.push(mn + ' - Locally Purchased');
+    headers.push(mn + ' - Locally Purchased Qty');
   }
-  if (sheet.getLastRow() === 0) {
-    // शीट रिकामी असल्यास संपूर्ण हेडर तयार करा
-    var materials = getMaterialMasterRows_();
-    var headers = ['Timestamp', 'District', 'Station', 'Project Manager', 'Date'];
-    for (var i = 0; i < materials.length; i++) {
-      var matName = materials[i][1];
-      headers.push(matName + ' - Received');
-      headers.push(matName + ' - Sufficient');
-      headers.push(matName + ' - Extra');
-      headers.push(matName + ' - Locally Purchased');
-      headers.push(matName + ' - Locally Purchased Qty');
-    }
-    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
-    sheet.getRange(1, 1, 1, headers.length).setFontWeight('bold').setBackground('#002B6B').setFontColor('#FFFFFF');
-    sheet.setFrozenRows(1);
-    sheet.setFrozenColumns(5);
-    sheet.autoResizeColumns(1, headers.length);
-  } else {
-    // शीटमध्ये डेटा आहे पण हेडर कमी असतील तर पूर्ण करा
-    var expectedCols = 5 + TOTAL_MATERIALS * 5;
-    var actualCols = sheet.getLastColumn();
-    if (actualCols < expectedCols) {
-      var hRow = sheet.getRange(1, 1, 1, actualCols).getValues()[0];
-      var existingMatHeadings = 0;
-      for (var c = 5; c < hRow.length; c++) {
-        if (hRow[c] && String(hRow[c]).trim() !== '') existingMatHeadings++;
-      }
-      var existingColsPerMat = existingMatHeadings > 0 ? Math.round(existingMatHeadings / TOTAL_MATERIALS) : 0;
-      if (existingColsPerMat < 5) {
-        var materials = getMaterialMasterRows_();
-        var addHeaders = [];
-        for (var mi = 0; mi < materials.length; mi++) {
-          var mn = materials[mi][1];
-          if (existingColsPerMat <= 0) {
-            addHeaders.push(mn + ' - Received');
-            addHeaders.push(mn + ' - Sufficient');
-            addHeaders.push(mn + ' - Extra');
-            addHeaders.push(mn + ' - Locally Purchased');
-            addHeaders.push(mn + ' - Locally Purchased Qty');
-          } else if (existingColsPerMat === 1) {
-            addHeaders.push(mn + ' - Sufficient');
-            addHeaders.push(mn + ' - Extra');
-            addHeaders.push(mn + ' - Locally Purchased');
-            addHeaders.push(mn + ' - Locally Purchased Qty');
-          } else if (existingColsPerMat === 2) {
-            addHeaders.push(mn + ' - Extra');
-            addHeaders.push(mn + ' - Locally Purchased');
-            addHeaders.push(mn + ' - Locally Purchased Qty');
-          } else if (existingColsPerMat === 3) {
-            addHeaders.push(mn + ' - Locally Purchased');
-            addHeaders.push(mn + ' - Locally Purchased Qty');
-          } else if (existingColsPerMat === 4) {
-            addHeaders.push(mn + ' - Locally Purchased Qty');
-          }
-        }
-        if (addHeaders.length > 0) {
-          sheet.getRange(1, actualCols + 1, 1, addHeaders.length).setValues([addHeaders]);
-          sheet.getRange(1, actualCols + 1, 1, addHeaders.length).setFontWeight('bold').setBackground('#002B6B').setFontColor('#FFFFFF');
-        }
-      }
-    }
-  }
+  sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+  sheet.getRange(1, 1, 1, headers.length).setFontWeight('bold').setBackground('#002B6B').setFontColor('#FFFFFF');
+  sheet.setFrozenRows(1);
+  sheet.setFrozenColumns(5);
+  sheet.autoResizeColumns(1, headers.length);
 }
 
-/**
- * setupIssuedQtySheet_ — IssuedQty शीट तयार करते: प्रत्येक स्थानक × प्रत्येक
- * मटेरियलसाठी एक ओळ (District | Station | Material Name | Unit | Issued Qty).
- * Issued Qty आता प्रत्यक्ष फील्ड डेटावरून (getRealIssuedQtyData_) भरली जाते —
- * Acid व Bleaching Powder साठी मात्र डेटा उपलब्ध नसल्याने ते स्लॉट रिकामे राहतात
- * (तुम्ही नंतर मॅन्युअली भरू शकता).
- * हे फंक्शन शीट आधीपासून असेल आणि त्यात डेटा भरलेला असेल तर ती ओव्हरराईट करत नाही
- * (तुमचा आधीचा मॅन्युअल बदल गमावू नये म्हणून) — फक्त शीट रिकामी किंवा नसेल तरच भरते.
- */
 function setupIssuedQtySheet_() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sheet = ss.getSheetByName(SHEET_ISSUEDQTY);
+  if (sheet && sheet.getLastRow() > 1) return; // already has data
+  if (!sheet) { sheet = ss.insertSheet(SHEET_ISSUEDQTY); } else { sheet.clear(); }
 
-  if (sheet && sheet.getLastRow() > 1) {
-    // आधीच डेटा भरलेला आहे — पुन्हा ओव्हरराईट करू नका.
-    return;
-  }
-  if (!sheet) {
-    sheet = ss.insertSheet(SHEET_ISSUEDQTY);
-  } else {
-    sheet.clear();
-  }
+  var stationRows = getPmDistrictStationRows_();
+  var materials = getMaterialMasterRows_();
+  var realData = getRealIssuedQtyData_();
 
-  var stationRows = getPmDistrictStationRows_(); // [pm, district, station]
-  var materials = getMaterialMasterRows_();      // [srNo, name, unit, '']
-  var realData = getRealIssuedQtyData_();        // [district, station, qty x 32]
-
-  // जलद लूकअपसाठी: "District||Station" -> [qty x 32]
   var qtyLookup = {};
   for (var k = 0; k < realData.length; k++) {
-    var key = realData[k][0] + '||' + realData[k][1];
-    qtyLookup[key] = realData[k].slice(2); // पहिले 2 (district, station) वगळून फक्त qty array
+    qtyLookup[realData[k][0] + '||' + realData[k][1]] = realData[k].slice(2);
   }
 
   var headers = ['District', 'Station', 'Material Name', 'Unit', 'Issued Qty'];
   sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
   sheet.getRange(1, 1, 1, headers.length).setFontWeight('bold').setBackground('#002B6B').setFontColor('#FFFFFF');
 
-  var rows = [];
-  var notFoundCount = 0;
+  var rows = [], notFound = 0;
   for (var i = 0; i < stationRows.length; i++) {
-    var district = stationRows[i][1];
-    var station = stationRows[i][2];
-    var lookupKey = district + '||' + station;
-    var qtyArray = qtyLookup[lookupKey];
-    if (!qtyArray) notFoundCount++;
-
+    var dist = stationRows[i][1], stn = stationRows[i][2];
+    var qArr = qtyLookup[dist + '||' + stn];
+    if (!qArr) notFound++;
     for (var j = 0; j < materials.length; j++) {
-      var qty = qtyArray ? qtyArray[j] : '';
-      rows.push([district, station, materials[j][1], materials[j][2], qty]);
+      rows.push([dist, stn, materials[j][1], materials[j][2], qArr ? qArr[j] : '']);
     }
   }
-
-  if (rows.length > 0) {
-    sheet.getRange(2, 1, rows.length, headers.length).setValues(rows);
-  }
-
+  if (rows.length > 0) sheet.getRange(2, 1, rows.length, 5).setValues(rows);
   sheet.setFrozenRows(1);
   sheet.setFrozenColumns(2);
-  sheet.autoResizeColumns(1, 5);
-
-  if (notFoundCount > 0) {
+  if (notFound > 0) {
     SpreadsheetApp.getActiveSpreadsheet().toast(
-      notFoundCount + ' स्थानकांसाठी प्रत्यक्ष डेटा सापडला नाही — त्यांची Qty रिकामी ठेवली आहे.',
-      'सूचना', 8
+      notFound + ' स्थानकांसाठी Qty सापडली नाही — रिकामी ठेवली.', 'सूचना', 8
     );
   }
 }
 
-/**
- * getIssuedQtyMap_ — संपूर्ण IssuedQty शीट एकदा वाचून
- * "District||Station||MaterialName" -> Qty असा लूकअप मॅप तयार करते.
- * टीप: काही स्थानकांची नावे वेगवेगळ्या जिल्ह्यांत सारखीच आहेत (उदा. "कारंजा" —
- * अकोला आणि वर्धा दोन्हीत), म्हणून फक्त Station वापरणे चुकीचे ठरेल;
- * District देखील key मध्ये असणे आवश्यक आहे.
- */
+function ensureDashboardSheet_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(SHEET_DASHBOARD);
+  if (!sheet) { sheet = ss.insertSheet(SHEET_DASHBOARD); }
+  if (sheet.getLastRow() > 0) return;
+  sheet.getRange('A1').setValue('MSRTC Material Status — Dashboard').setFontWeight('bold').setFontSize(14).setFontColor('#002B6B');
+  sheet.getRange('A3').setValue('एकूण स्थानके:').setFontFamily('Arial');
+  sheet.getRange('B3').setFormula('=COUNTA(Base!C2:C1000)').setFontFamily('Arial');
+  sheet.getRange('A4').setValue('एकूण सबमिशन:');
+  sheet.getRange('B4').setFormula('=COUNTA(Responses!A2:A10000)');
+  sheet.getRange('A5').setValue('आज सबमिट:');
+  sheet.getRange('B5').setFormula('=COUNTIF(Responses!E2:E10000, TEXT(TODAY(),"dd/MM/yyyy"))');
+  sheet.getRange('A6').setValue('प्रलंबित:');
+  sheet.getRange('B6').setFormula('=B3-COUNTUNIQUE(Responses!C2:C10000)');
+  sheet.autoResizeColumns(1, 2);
+}
 
-/**
- * REAL_ISSUED_QTY_DATA — प्रत्यक्ष सर्वेक्षण डेटावरून घेतलेली स्थानकनिहाय मटेरियल संख्या.
- * स्रोत: MSRTC फील्ड डेटा (Book3.xlsx) — रेस्ट रूम संख्या, क्षेत्रफळ, मनुष्यबळ इत्यादींवर
- * आधारित संगणित संख्या. प्रत्येक ओळ: [District, Station, qty x 32 (Sr.No क्रमाने)].
- * Acid व Bleaching Powder साठी या स्रोतात डेटा उपलब्ध नाही — ते स्लॉट रिकामे ('') आहेत;
- * ते मॅन्युअली IssuedQty शीटमध्ये नंतर भरता येतील.
- */
+function ensureConfigSheet_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(SHEET_CONFIG);
+  if (!sheet) { sheet = ss.insertSheet(SHEET_CONFIG); }
+  if (sheet.getLastRow() > 0) return;
+  sheet.getRange('A1:B1').setValues([['Key', 'Value']]).setFontWeight('bold').setBackground('#002B6B').setFontColor('#FFFFFF');
+  sheet.getRange('A2:B2').setValues([['App Version', APP_VERSION]]);
+  sheet.getRange('A3:B3').setValues([['Last Updated', Utilities.formatDate(new Date(), 'Asia/Kolkata', 'dd/MM/yyyy HH:mm:ss')]]);
+  sheet.autoResizeColumns(1, 2);
+}
+
+function touchConfigLastUpdated_() {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_CONFIG);
+  if (!sheet) return;
+  var data = sheet.getDataRange().getValues();
+  for (var i = 0; i < data.length; i++) {
+    if (data[i][0] === 'Last Updated') {
+      sheet.getRange(i + 1, 2).setValue(Utilities.formatDate(new Date(), 'Asia/Kolkata', 'dd/MM/yyyy HH:mm:ss'));
+      return;
+    }
+  }
+}
+
+// ======================================================================
+//  CLEANING HELPERS
+// ======================================================================
+function _cleanStr(str) {
+  var s = String(str || '');
+  try { s = s.normalize('NFC'); } catch (e) {}
+  return s.replace(/[\s ​‌‍﻿ -‏    　]+/g, ' ').trim();
+}
+
+function _normDateForComp(val) {
+  if (val instanceof Date && !isNaN(val)) {
+    var dd = ('0' + val.getDate()).slice(-2);
+    var mm = ('0' + (val.getMonth() + 1)).slice(-2);
+    return dd + '/' + mm + '/' + val.getFullYear();
+  }
+  return String(val || '').trim();
+}
+
+// ======================================================================
+//  BASE DATA
+// ======================================================================
+function getBaseData() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(SHEET_BASE);
+  if (!sheet) throw new Error('Base sheet सापडली नाही. कृपया प्रथम setupBaseSheet() रन करा.');
+
+  var lastRow = sheet.getLastRow();
+  var stations = [], districtSet = {};
+
+  if (lastRow >= 2) {
+    var rangeA = sheet.getRange(2, 1, lastRow - 1, 3).getValues();
+    for (var i = 0; i < rangeA.length; i++) {
+      var pm = _cleanStr(rangeA[i][0]), dist = _cleanStr(rangeA[i][1]), stn = _cleanStr(rangeA[i][2]);
+      if (!dist && !stn) continue;
+      stations.push({ pm: pm, district: dist, station: stn });
+      districtSet[dist] = true;
+    }
+  }
+
+  var districts = Object.keys(districtSet).sort(function(a,b){ return a.localeCompare(b,'mr'); });
+
+  var materials = [];
+  var lastRowB = sheet.getRange('E1:E1000').getValues().filter(function(r){ return r[0] !== ''; }).length;
+  if (lastRowB >= 2) {
+    var rangeB = sheet.getRange(2, 5, lastRowB - 1, 4).getValues();
+    for (var j = 0; j < rangeB.length; j++) {
+      materials.push({
+        srNo: rangeB[j][0], name: _cleanStr(rangeB[j][1]), unit: rangeB[j][2]
+      });
+    }
+  }
+
+  return { stations: stations, districts: districts, materials: materials, totalMaterials: materials.length };
+}
+
+// ======================================================================
+//  ISSUED QTY
+// ======================================================================
+function getIssuedQtyMap_() {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_ISSUEDQTY);
+  if (!sheet || sheet.getLastRow() < 2) return {};
+  var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, 5).getValues();
+  var map = {};
+  for (var i = 0; i < data.length; i++) {
+    var dist = data[i][0], stn = data[i][1], mat = data[i][2], qty = data[i][4];
+    if (!dist || !stn || !mat) continue;
+    map[_cleanStr(dist) + '||' + _cleanStr(stn) + '||' + _cleanStr(mat)] = qty;
+  }
+  return map;
+}
+
+function getIssuedQtyForStation(district, station) {
+  var map = getIssuedQtyMap_();
+  var result = {};
+  var baseSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_BASE);
+  if (!baseSheet) return result;
+  var d = _cleanStr(district), s = _cleanStr(station);
+  var lastRowB = baseSheet.getRange('E1:E1000').getValues().filter(function(r){ return r[0] !== ''; }).length;
+  if (lastRowB < 2) return result;
+  var rangeB = baseSheet.getRange(2, 5, lastRowB - 1, 4).getValues();
+  for (var j = 0; j < rangeB.length; j++) {
+    var matName = rangeB[j][1];
+    if (matName === '') continue;
+    result[matName] = map[d + '||' + s + '||' + _cleanStr(matName)] || '';
+  }
+  return result;
+}
+
+// ======================================================================
+//  DUPLICATE / DELETE / SUBMISSIONS
+// ======================================================================
+function checkDuplicateToday(district, station, dateStr) {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_RESPONSES);
+  return sheet ? findResponseRow_(sheet, district, station, dateStr) !== -1 : false;
+}
+
+function findResponseRow_(sheet, district, station, dateStr) {
+  var lr = sheet.getLastRow();
+  if (lr < 2) return -1;
+  var d = _cleanStr(district), s = _cleanStr(station), dt = _normDateForComp(dateStr);
+  var meta = sheet.getRange(2, 1, lr - 1, 5).getValues();
+  for (var i = 0; i < meta.length; i++) {
+    if (_cleanStr(meta[i][1]) === d && _cleanStr(meta[i][2]) === s && _normDateForComp(meta[i][4]) === dt)
+      return i + 2;
+  }
+  return -1;
+}
+
+function getSubmissionsForStation(district, station) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(SHEET_RESPONSES);
+  if (!sheet) {
+    var allSheets = ss.getSheets();
+    for (var s = 0; s < allSheets.length; s++) {
+      if (allSheets[s].getName().toLowerCase().indexOf('response') !== -1) { sheet = allSheets[s]; break; }
+    }
+  }
+  if (!sheet || sheet.getLastRow() < 2) return [];
+  var d = _cleanStr(district), s = _cleanStr(station);
+  var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, 5).getValues();
+  var results = [];
+  for (var i = 0; i < data.length; i++) {
+    if (_cleanStr(data[i][1]) === d && _cleanStr(data[i][2]) === s) {
+      results.push({ timestamp: _normDateForComp(data[i][0]), pm: _cleanStr(data[i][3]), date: _normDateForComp(data[i][4]) });
+    }
+  }
+  results.sort(function(a,b){ return String(b.date).localeCompare(String(a.date)); });
+  return results;
+}
+
+function deleteResponse(district, station, dateStr) {
+  var lock = LockService.getScriptLock();
+  var gotLock = false;
+  try {
+    gotLock = lock.tryLock(10000);
+    if (!gotLock) return { success: false, error: 'सर्व्हर व्यस्त आहे.' };
+    var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_RESPONSES);
+    if (!sheet || sheet.getLastRow() < 2) return { success: false, error: 'नोंद सापडली नाही.' };
+    var row = findResponseRow_(sheet, district, station, dateStr);
+    if (row === -1) return { success: false, error: 'नोंद सापडली नाही.' };
+    sheet.deleteRow(row);
+    return { success: true };
+  } catch (err) { return { success: false, error: 'त्रुटी: ' + err.message }; }
+  finally { if (gotLock) lock.releaseLock(); }
+}
+
+// ======================================================================
+//  EDIT — getSubmissionForEdit
+// ======================================================================
+function getSubmissionForEdit(district, station, dateStr) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(SHEET_RESPONSES);
+  if (!sheet || sheet.getLastRow() < 2) return null;
+  var targetRow = findResponseRow_(sheet, district, station, dateStr);
+  if (targetRow === -1) return null;
+
+  // Read row — two-block layout: [meta5] + [32×3 RSE] + [32×2 LP]
+  var maxCol = sheet.getLastColumn();
+  var rowData = sheet.getRange(targetRow, 1, 1, maxCol).getValues()[0];
+  var hasLP = (maxCol >= 5 + TOTAL_MATERIALS * 3 + 1);
+  var materials = [];
+
+  for (var j = 0; j < TOTAL_MATERIALS; j++) {
+    var r = rowData[5 + j * 3];          // Received
+    var suff = rowData[5 + j * 3 + 1];   // Sufficient
+    var ext = rowData[5 + j * 3 + 2];    // Extra
+    var ap = (r !== 'N/A');
+
+    materials.push({
+      applicable: ap,
+      received: ap ? String(r) : '',
+      sufficient: ap ? String(suff) : '',
+      extra: (ap && ext && String(ext) !== '0') ? String(ext) : '',
+      locallyPurchased: ap && hasLP ? String(rowData[5 + TOTAL_MATERIALS * 3 + j * 2]) : '',
+      locallyPurchasedQty: ap && hasLP ? String(rowData[5 + TOTAL_MATERIALS * 3 + j * 2 + 1]) : ''
+    });
+  }
+  return { pm: String(rowData[3]).trim(), materials: materials };
+}
+
+// ======================================================================
+//  VALIDATION — returns error string or null
+// ======================================================================
+function validatePayload_(payload) {
+  if (!payload || !payload.district || !payload.station || !payload.pm || !payload.date)
+    return 'आवश्यक माहिती अपूर्ण आहे (जिल्हा/स्थानक/PM/तारीख).';
+  if (!payload.materials || payload.materials.length !== TOTAL_MATERIALS)
+    return 'मटेरियल यादीची लांबी ' + TOTAL_MATERIALS + ' असावी.';
+
+  var anyApplicable = false;
+  for (var i = 0; i < payload.materials.length; i++) {
+    var m = payload.materials[i];
+    if (!m.applicable) continue;
+    anyApplicable = true;
+    var recv = Number(m.received);
+    if (m.received === '' || m.received === null || m.received === undefined || isNaN(recv) || recv < 0)
+      return 'मटेरियल क्र. ' + (i + 1) + ' साठी "प्राप्त झालेली संख्या" वैध नाही.';
+    if (m.sufficient !== 'होय' && m.sufficient !== 'नाही')
+      return 'मटेरियल क्र. ' + (i + 1) + ' साठी "पुरेसे?" निवडा.';
+    if (m.sufficient === 'नाही') {
+      var ext = Number(m.extra);
+      if (m.extra === '' || m.extra === null || m.extra === undefined || isNaN(ext) || ext <= 0)
+        return 'मटेरियल क्र. ' + (i + 1) + ' साठी "अतिरिक्त संख्या" भरा.';
+      // 40% cap when received >= issued; emergency override when received < issued
+      var issuedQ = Number(m.issuedQty) || 0;
+      if (recv >= issuedQ) {
+        var maxExtra = Math.ceil(recv * 0.4);
+        if (recv > 0 && ext > maxExtra)
+          return 'मटेरियल क्र. ' + (i + 1) + ' — अतिरिक्त संख्या (' + ext + ') कमाल मर्यादेपेक्षा (' + maxExtra + ' — प्राप्त संख्येच्या 40%) जास्त आहे.';
+      }
+    }
+  }
+  return anyApplicable ? null : 'या स्थानकासाठी कोणतेही मटेरियल लागू नाही.';
+}
+
+// ======================================================================
+//  SUBMIT & UPDATE
+// ======================================================================
+function submitResponse(payload) {
+  var err = validatePayload_(payload);
+  if (err) return { success: false, error: err };
+
+  // Duplicate check (fast)
+  if (checkDuplicateToday(payload.district, payload.station, payload.date))
+    return { success: false, duplicateBlocked: true, error: '⚠️ या तारखेला आधीच नोंद आहे.' };
+
+  var lock = LockService.getScriptLock();
+  var gotLock = false;
+  try {
+    gotLock = lock.tryLock(10000);
+    if (!gotLock) return { success: false, error: 'सर्व्हर व्यस्त आहे.' };
+
+    // Re-check under lock
+    if (checkDuplicateToday(payload.district, payload.station, payload.date))
+      return { success: false, duplicateBlocked: true, error: '⚠️ या तारखेला आधीच नोंद आहे.' };
+
+    ensureResponsesSheet_();
+    var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_RESPONSES);
+    var ts = Utilities.formatDate(new Date(), 'Asia/Kolkata', 'dd/MM/yyyy HH:mm:ss');
+
+    var rseBlock = [], lpBlock = [];
+    var suffCnt = 0, insuffCnt = 0, totExtra = 0, appCnt = 0;
+
+    for (var j = 0; j < payload.materials.length; j++) {
+      var mat = payload.materials[j];
+      if (!mat.applicable) {
+        rseBlock.push('N/A','N/A','');
+        lpBlock.push('N/A','');
+        continue;
+      }
+      appCnt++;
+      rseBlock.push(Number(mat.received), mat.sufficient);
+      var ev = mat.sufficient === 'नाही' ? Number(mat.extra) : 0;
+      rseBlock.push(ev);
+      lpBlock.push('नाही','');
+      if (mat.sufficient === 'होय') suffCnt++; else { insuffCnt++; totExtra += ev; }
+    }
+
+    var row = [ts, payload.district, payload.station, payload.pm, payload.date]
+      .concat(rseBlock).concat(lpBlock);
+    sheet.appendRow(row);
+    touchConfigLastUpdated_();
+
+    return { success: true, summary: { applicableCount: appCnt, sufficientCount: suffCnt, insufficientCount: insuffCnt, totalExtra: totExtra, timestamp: ts } };
+  } catch (e) { return { success: false, error: 'त्रुटी: ' + e.message }; }
+  finally { if (gotLock) lock.releaseLock(); }
+}
+
+function updateResponse(payload) {
+  var err = validatePayload_(payload);
+  if (err) return { success: false, error: err };
+
+  var lock = LockService.getScriptLock();
+  var gotLock = false;
+  try {
+    gotLock = lock.tryLock(10000);
+    if (!gotLock) return { success: false, error: 'सर्व्हर व्यस्त आहे.' };
+
+    var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_RESPONSES);
+    if (!sheet || sheet.getLastRow() < 2) return { success: false, error: 'अपडेट करण्यासाठी नोंद सापडली नाही.' };
+    var targetRow = findResponseRow_(sheet, payload.district, payload.station, payload.date);
+    if (targetRow === -1) return { success: false, error: 'अपडेट करण्यासाठी नोंद सापडली नाही.' };
+
+    var ts = Utilities.formatDate(new Date(), 'Asia/Kolkata', 'dd/MM/yyyy HH:mm:ss');
+    var rseBlock = [], lpBlock = [];
+    var suffCnt = 0, insuffCnt = 0, totExtra = 0, appCnt = 0;
+
+    for (var j = 0; j < payload.materials.length; j++) {
+      var mat = payload.materials[j];
+      if (!mat.applicable) {
+        rseBlock.push('N/A','N/A','');
+        lpBlock.push('N/A','');
+        continue;
+      }
+      appCnt++;
+      rseBlock.push(Number(mat.received), mat.sufficient);
+      var ev = mat.sufficient === 'नाही' ? Number(mat.extra) : 0;
+      rseBlock.push(ev);
+      lpBlock.push('नाही','');
+      if (mat.sufficient === 'होय') suffCnt++; else { insuffCnt++; totExtra += ev; }
+    }
+
+    var row = [ts, payload.district, payload.station, payload.pm, payload.date]
+      .concat(rseBlock).concat(lpBlock);
+
+    sheet.getRange(targetRow, 1, 1, row.length).setValues([row]);
+    touchConfigLastUpdated_();
+
+    return { success: true, updated: true, summary: { applicableCount: appCnt, sufficientCount: suffCnt, insufficientCount: insuffCnt, totalExtra: totExtra, timestamp: ts } };
+  } catch (e) { return { success: false, error: 'त्रुटी: ' + e.message }; }
+  finally { if (gotLock) lock.releaseLock(); }
+}
+
+// ======================================================================
+//  MASTER DATA — PM/district/station rows
+// ======================================================================
+function getPmDistrictStationRows_() {
+  return [
+    ['Vinay Pahlajani', 'अकोला', 'अकोट'],
+    ['Vinay Pahlajani', 'अकोला', 'अकोला १'],
+    ['Vinay Pahlajani', 'अकोला', 'अकोला २'],
+    ['Vinay Pahlajani', 'अकोला', 'आंसिंग'],
+    ['Vinay Pahlajani', 'अकोला', 'कारंजा'],
+    ['Vinay Pahlajani', 'अकोला', 'तेल्हारा'],
+    ['Vinay Pahlajani', 'अकोला', 'पातूर'],
+    ['Vinay Pahlajani', 'अकोला', 'पोहरादेवी'],
+    ['Vinay Pahlajani', 'अकोला', 'बार्शी टाकळी'],
+    ['Vinay Pahlajani', 'अकोला', 'बाळापूर'],
+    ['Vinay Pahlajani', 'अकोला', 'बोरगाव मंजू'],
+    ['Vinay Pahlajani', 'अकोला', 'मंगरूळपीर'],
+    ['Vinay Pahlajani', 'अकोला', 'मानोरा'],
+    ['Vinay Pahlajani', 'अकोला', 'मालेगाव'],
+    ['Vinay Pahlajani', 'अकोला', 'मूर्तिजापूर'],
+    ['Vinay Pahlajani', 'अकोला', 'रिसोड'],
+    ['Vinay Pahlajani', 'अकोला', 'वाशिम'],
+    ['Vinay Pahlajani', 'अकोला', 'हिवरखेड'],
+    ['Vinay Pahlajani', 'अमरावती', 'अंजनगाव सुर्जी'],
+    ['Vinay Pahlajani', 'अमरावती', 'अमरावती १'],
+    ['Vinay Pahlajani', 'अमरावती', 'कुऱ्हा'],
+    ['Vinay Pahlajani', 'अमरावती', 'चांदूर बाजार'],
+    ['Vinay Pahlajani', 'अमरावती', 'चांदूर रेल्वे'],
+    ['Vinay Pahlajani', 'अमरावती', 'चिखलदरा'],
+    ['Vinay Pahlajani', 'अमरावती', 'तिवसा'],
+    ['Vinay Pahlajani', 'अमरावती', 'दर्यापूर'],
+    ['Vinay Pahlajani', 'अमरावती', 'धामणगाव रेल्वे'],
+    ['Vinay Pahlajani', 'अमरावती', 'धारणी'],
+    ['Vinay Pahlajani', 'अमरावती', 'परतवाडा/अचलपूर'],
+    ['Vinay Pahlajani', 'अमरावती', 'बडनेरा'],
+    ['Vinay Pahlajani', 'अमरावती', 'मोझरी'],
+    ['Vinay Pahlajani', 'अमरावती', 'मोर्शी'],
+    ['Vinay Pahlajani', 'अमरावती', 'राजापेठ'],
+    ['Vinay Pahlajani', 'अमरावती', 'वरूड'],
+    ['Vinay Pahlajani', 'अमरावती', 'वलगाव'],
+    ['Dashrath Palatwad', 'अहिल्यानगर', 'अकोले'],
+    ['Dashrath Palatwad', 'अहिल्यानगर', 'कर्जत'],
+    ['Dashrath Palatwad', 'अहिल्यानगर', 'कोपरगाव'],
+    ['Dashrath Palatwad', 'अहिल्यानगर', 'कोल्हार'],
+    ['Dashrath Palatwad', 'अहिल्यानगर', 'खर्डा'],
+    ['Dashrath Palatwad', 'अहिल्यानगर', 'जामखेड'],
+    ['Dashrath Palatwad', 'अहिल्यानगर', 'तारकपूर'],
+    ['Dashrath Palatwad', 'अहिल्यानगर', 'नेवासा'],
+    ['Dashrath Palatwad', 'अहिल्यानगर', 'पाथर्डी जुने'],
+    ['Dashrath Palatwad', 'अहिल्यानगर', 'पाथर्डी नवीन'],
+    ['Dashrath Palatwad', 'अहिल्यानगर', 'पारनेर'],
+    ['Dashrath Palatwad', 'अहिल्यानगर', 'बाभळेश्वर'],
+    ['Dashrath Palatwad', 'अहिल्यानगर', 'बेलापूर'],
+    ['Dashrath Palatwad', 'अहिल्यानगर', 'मिरजगाव'],
+    ['Dashrath Palatwad', 'अहिल्यानगर', 'राजूर'],
+    ['Dashrath Palatwad', 'अहिल्यानगर', 'राशीन'],
+    ['Dashrath Palatwad', 'अहिल्यानगर', 'राहाता'],
+    ['Dashrath Palatwad', 'अहिल्यानगर', 'राहुरी'],
+    ['Dashrath Palatwad', 'अहिल्यानगर', 'लोणी'],
+    ['Dashrath Palatwad', 'अहिल्यानगर', 'वांबोरी'],
+    ['Dashrath Palatwad', 'अहिल्यानगर', 'शिर्डी'],
+    ['Dashrath Palatwad', 'अहिल्यानगर', 'शेवगाव'],
+    ['Dashrath Palatwad', 'अहिल्यानगर', 'श्रीगोंदा'],
+    ['Dashrath Palatwad', 'अहिल्यानगर', 'श्रीरामपूर'],
+    ['Dashrath Palatwad', 'अहिल्यानगर', 'संगमनेर'],
+    ['Dashrath Palatwad', 'अहिल्यानगर', 'सुपा'],
+    ['Dashrath Palatwad', 'अहिल्यानगर', 'सोनई'],
+    ['Dashrath Palatwad', 'अहिल्यानगर', 'स्वस्तिक'],
+    ['Suyog Dixit', 'कोल्हापूर', 'आजरा'],
+    ['Suyog Dixit', 'कोल्हापूर', 'इचलकरंजी'],
+    ['Suyog Dixit', 'कोल्हापूर', 'कागल'],
+    ['Suyog Dixit', 'कोल्हापूर', 'कुरुंदवाड'],
+    ['Suyog Dixit', 'कोल्हापूर', 'कोडोली'],
+    ['Suyog Dixit', 'कोल्हापूर', 'कोल्हापूर मध्यवर्ती'],
+    ['Suyog Dixit', 'कोल्हापूर', 'गगनबावडा'],
+    ['Suyog Dixit', 'कोल्हापूर', 'गडहिंग्लज'],
+    ['Suyog Dixit', 'कोल्हापूर', 'गारगोटी'],
+    ['Suyog Dixit', 'कोल्हापूर', 'चंदगड'],
+    ['Suyog Dixit', 'कोल्हापूर', 'जोतिबा'],
+    ['Suyog Dixit', 'कोल्हापूर', 'नृसिंहवाडी'],
+    ['Suyog Dixit', 'कोल्हापूर', 'मलकापूर'],
+    ['Suyog Dixit', 'कोल्हापूर', 'मुरगूड'],
+    ['Suyog Dixit', 'कोल्हापूर', 'रंकाळा'],
+    ['Suyog Dixit', 'कोल्हापूर', 'राधानगरी'],
+    ['Suyog Dixit', 'कोल्हापूर', 'वडगाव'],
+    ['Suyog Dixit', 'कोल्हापूर', 'वाठार'],
+    ['Suyog Dixit', 'कोल्हापूर', 'शिरोळ'],
+    ['Suyog Dixit', 'कोल्हापूर', 'संभाजीनगर'],
+    ['Suyog Dixit', 'कोल्हापूर', 'हातकणंगले'],
+    ['Suyog Dixit', 'कोल्हापूर', 'हुपरी'],
+    ['Vinay Pahlajani', 'गडचिरोली', 'अहेरी'],
+    ['Vinay Pahlajani', 'गडचिरोली', 'आरमोरी'],
+    ['Vinay Pahlajani', 'गडचिरोली', 'आलापल्ली'],
+    ['Vinay Pahlajani', 'गडचिरोली', 'कुरखेडा'],
+    ['Vinay Pahlajani', 'गडचिरोली', 'गडचिरोली'],
+    ['Vinay Pahlajani', 'गडचिरोली', 'गोंडपिंपरी'],
+    ['Vinay Pahlajani', 'गडचिरोली', 'चामोर्शी'],
+    ['Vinay Pahlajani', 'गडचिरोली', 'तळोधी'],
+    ['Vinay Pahlajani', 'गडचिरोली', 'धानोरा'],
+    ['Vinay Pahlajani', 'गडचिरोली', 'नागभीड'],
+    ['Vinay Pahlajani', 'गडचिरोली', 'ब्रह्मपुरी'],
+    ['Vinay Pahlajani', 'गडचिरोली', 'वडसा'],
+    ['Vinay Pahlajani', 'गडचिरोली', 'सावली'],
+    ['Vinay Pahlajani', 'गडचिरोली', 'सिंदेवाही'],
+    ['Vinay Pahlajani', 'गडचिरोली', 'सिरोंचा'],
+    ['Vinay Pahlajani', 'चंद्रपूर', 'घुग्घूस'],
+    ['Vinay Pahlajani', 'चंद्रपूर', 'चंद्रपूर'],
+    ['Vinay Pahlajani', 'चंद्रपूर', 'चिमूर'],
+    ['Vinay Pahlajani', 'चंद्रपूर', 'बल्लारपूर'],
+    ['Vinay Pahlajani', 'चंद्रपूर', 'भद्रावती'],
+    ['Vinay Pahlajani', 'चंद्रपूर', 'मूल'],
+    ['Vinay Pahlajani', 'चंद्रपूर', 'राजुरा'],
+    ['Vinay Pahlajani', 'चंद्रपूर', 'वरोरा'],
+    ['Mandar Gaikwad', 'छ. संभाजीनगर', 'कन्नड'],
+    ['Mandar Gaikwad', 'छ. संभाजीनगर', 'गंगापूर'],
+    ['Mandar Gaikwad', 'छ. संभाजीनगर', 'चिंचोली'],
+    ['Mandar Gaikwad', 'छ. संभाजीनगर', 'छ.संभाजीनगर सिडको'],
+    ['Mandar Gaikwad', 'छ. संभाजीनगर', 'छ. संभाजीनगर मध्यवर्ती बस स्थानक'],
+    ['Mandar Gaikwad', 'छ. संभाजीनगर', 'पैठण'],
+    ['Mandar Gaikwad', 'छ. संभाजीनगर', 'फुलंब्री'],
+    ['Mandar Gaikwad', 'छ. संभाजीनगर', 'वैजापूर'],
+    ['Mandar Gaikwad', 'छ. संभाजीनगर', 'सिल्लोड'],
+    ['Mandar Gaikwad', 'छ. संभाजीनगर', 'सोयगाव'],
+    ['Dashrath Palatwad', 'जळगाव', 'अमळनेर'],
+    ['Dashrath Palatwad', 'जळगाव', 'एरंडोल'],
+    ['Dashrath Palatwad', 'जळगाव', 'चाळीसगाव'],
+    ['Dashrath Palatwad', 'जळगाव', 'चोपडा'],
+    ['Dashrath Palatwad', 'जळगाव', 'जळगाव नवीन'],
+    ['Dashrath Palatwad', 'जळगाव', 'जळगाव शहर'],
+    ['Dashrath Palatwad', 'जळगाव', 'जामनेर'],
+    ['Dashrath Palatwad', 'जळगाव', 'धरणगाव'],
+    ['Dashrath Palatwad', 'जळगाव', 'पाचोरा'],
+    ['Dashrath Palatwad', 'जळगाव', 'पारोळा'],
+    ['Dashrath Palatwad', 'जळगाव', 'पाळधी'],
+    ['Dashrath Palatwad', 'जळगाव', 'फैजपूर'],
+    ['Dashrath Palatwad', 'जळगाव', 'बोदवड'],
+    ['Dashrath Palatwad', 'जळगाव', 'भडगाव'],
+    ['Dashrath Palatwad', 'जळगाव', 'भुसावळ'],
+    ['Dashrath Palatwad', 'जळगाव', 'मुक्ताईनगर'],
+    ['Dashrath Palatwad', 'जळगाव', 'यावल'],
+    ['Dashrath Palatwad', 'जळगाव', 'रावेर'],
+    ['Dashrath Palatwad', 'जळगाव', 'सावदा'],
+    ['Dashrath Palatwad', 'जालना', 'अंबड'],
+    ['Dashrath Palatwad', 'जालना', 'आष्टी'],
+    ['Dashrath Palatwad', 'जालना', 'कुंभार पिंपळगाव'],
+    ['Dashrath Palatwad', 'जालना', 'घनसावंगी'],
+    ['Dashrath Palatwad', 'जालना', 'जाफराबाद'],
+    ['Dashrath Palatwad', 'जालना', 'जालना'],
+    ['Dashrath Palatwad', 'जालना', 'परतूर'],
+    ['Dashrath Palatwad', 'जालना', 'बदनापूर'],
+    ['Dashrath Palatwad', 'जालना', 'भोकरदन'],
+    ['Dashrath Palatwad', 'जालना', 'मंठा'],
+    ['Dashrath Palatwad', 'जालना', 'राजूर'],
+    ['Dashrath Palatwad', 'जालना', 'शहागड'],
+    ['Dayanand Palkar', 'ठाणे', 'कल्याण'],
+    ['Dayanand Palkar', 'ठाणे', 'खोपट'],
+    ['Dayanand Palkar', 'ठाणे', 'ठाणे रेल्वे स्थानक'],
+    ['Dayanand Palkar', 'ठाणे', 'ठाणे १'],
+    ['Dayanand Palkar', 'ठाणे', 'ठाणे २'],
+    ['Dayanand Palkar', 'ठाणे', 'बोरिवली नॅन्सी'],
+    ['Dayanand Palkar', 'ठाणे', 'बोरिवली सुकुरवाडी'],
+    ['Dayanand Palkar', 'ठाणे', 'भिवंडी'],
+    ['Dayanand Palkar', 'ठाणे', 'मुरबाड'],
+    ['Dayanand Palkar', 'ठाणे', 'वंदना'],
+    ['Dayanand Palkar', 'ठाणे', 'वाडा'],
+    ['Dayanand Palkar', 'ठाणे', 'विठ्ठलवाडी'],
+    ['Dayanand Palkar', 'ठाणे', 'शहापूर'],
+    ['Dashrath Palatwad', 'धाराशिव', 'अंदूर'],
+    ['Dashrath Palatwad', 'धाराशिव', 'उमरगा'],
+    ['Dashrath Palatwad', 'धाराशिव', 'कळंब'],
+    ['Dashrath Palatwad', 'धाराशिव', 'तुळजापूर'],
+    ['Dashrath Palatwad', 'धाराशिव', 'तुळजापूर जुने'],
+    ['Dashrath Palatwad', 'धाराशिव', 'तेर'],
+    ['Dashrath Palatwad', 'धाराशिव', 'धाराशिव'],
+    ['Dashrath Palatwad', 'धाराशिव', 'नळदुर्ग'],
+    ['Dashrath Palatwad', 'धाराशिव', 'परंडा'],
+    ['Dashrath Palatwad', 'धाराशिव', 'भूम'],
+    ['Dashrath Palatwad', 'धाराशिव', 'भूम जुने'],
+    ['Dashrath Palatwad', 'धाराशिव', 'मुरूम'],
+    ['Dashrath Palatwad', 'धाराशिव', 'येडशी'],
+    ['Dashrath Palatwad', 'धाराशिव', 'येणेगूर'],
+    ['Dashrath Palatwad', 'धाराशिव', 'येरमाळा'],
+    ['Dashrath Palatwad', 'धाराशिव', 'लोहारा'],
+    ['Dashrath Palatwad', 'धाराशिव', 'वाशी'],
+    ['Dashrath Palatwad', 'धाराशिव', 'शिराढोण'],
+    ['Dashrath Palatwad', 'धुळे', 'अक्कलकुवा'],
+    ['Dashrath Palatwad', 'धुळे', 'चिमठाणे'],
+    ['Dashrath Palatwad', 'धुळे', 'तळोदा'],
+    ['Dashrath Palatwad', 'धुळे', 'देवपूर'],
+    ['Dashrath Palatwad', 'धुळे', 'दोंडाईचा'],
+    ['Dashrath Palatwad', 'धुळे', 'धडगाव'],
+    ['Dashrath Palatwad', 'धुळे', 'धुळे'],
+    ['Dashrath Palatwad', 'धुळे', 'नंदुरबार'],
+    ['Dashrath Palatwad', 'धुळे', 'नवापूर'],
+    ['Dashrath Palatwad', 'धुळे', 'पिंपळनेर'],
+    ['Dashrath Palatwad', 'धुळे', 'शहादा'],
+    ['Dashrath Palatwad', 'धुळे', 'शिरपूर'],
+    ['Dashrath Palatwad', 'धुळे', 'साक्री'],
+    ['Dashrath Palatwad', 'धुळे', 'सिंदखेडा'],
+    ['Mandar Gaikwad', 'नांदेड', 'अर्धापूर'],
+    ['Mandar Gaikwad', 'नांदेड', 'उमरी'],
+    ['Mandar Gaikwad', 'नांदेड', 'कंधार'],
+    ['Mandar Gaikwad', 'नांदेड', 'किनवट'],
+    ['Mandar Gaikwad', 'नांदेड', 'कुंडलवाडी'],
+    ['Mandar Gaikwad', 'नांदेड', 'तामसा'],
+    ['Mandar Gaikwad', 'नांदेड', 'देगलूर जुने'],
+    ['Mandar Gaikwad', 'नांदेड', 'देगलूर नवीन'],
+    ['Mandar Gaikwad', 'नांदेड', 'धर्माबाद'],
+    ['Mandar Gaikwad', 'नांदेड', 'नरसी'],
+    ['Mandar Gaikwad', 'नांदेड', 'नांदेड मध्यवर्ती'],
+    ['Mandar Gaikwad', 'नांदेड', 'बरहाळी'],
+    ['Mandar Gaikwad', 'नांदेड', 'बारड'],
+    ['Mandar Gaikwad', 'नांदेड', 'बिलोली'],
+    ['Mandar Gaikwad', 'नांदेड', 'भोकर'],
+    ['Mandar Gaikwad', 'नांदेड', 'मांडवी'],
+    ['Mandar Gaikwad', 'नांदेड', 'माहूर'],
+    ['Mandar Gaikwad', 'नांदेड', 'मुखेड'],
+    ['Mandar Gaikwad', 'नांदेड', 'मुदखेड'],
+    ['Mandar Gaikwad', 'नांदेड', 'लोहा'],
+    ['Mandar Gaikwad', 'नांदेड', 'हदगाव'],
+    ['Vinay Pahlajani', 'नागपूर', 'इमामवाडा'],
+    ['Vinay Pahlajani', 'नागपूर', 'उमरेड'],
+    ['Vinay Pahlajani', 'नागपूर', 'कमलेश्वर'],
+    ['Vinay Pahlajani', 'नागपूर', 'कटोल'],
+    ['Vinay Pahlajani', 'नागपूर', 'कामठी'],
+    ['Vinay Pahlajani', 'नागपूर', 'कुही'],
+    ['Vinay Pahlajani', 'नागपूर', 'कोंढाळी'],
+    ['Vinay Pahlajani', 'नागपूर', 'खापा'],
+    ['Vinay Pahlajani', 'नागपूर', 'गणेशपेठ'],
+    ['Vinay Pahlajani', 'नागपूर', 'घाटरोड'],
+    ['Vinay Pahlajani', 'नागपूर', 'जलालखेडा'],
+    ['Vinay Pahlajani', 'नागपूर', 'धापेवाडा'],
+    ['Vinay Pahlajani', 'नागपूर', 'नरखेड'],
+    ['Vinay Pahlajani', 'नागपूर', 'पारशिवनी'],
+    ['Vinay Pahlajani', 'नागपूर', 'बुटीबोरी (एमआयडीसी)'],
+    ['Vinay Pahlajani', 'नागपूर', 'मोरभवन'],
+    ['Vinay Pahlajani', 'नागपूर', 'मोवाड'],
+    ['Vinay Pahlajani', 'नागपूर', 'मोहपा'],
+    ['Vinay Pahlajani', 'नागपूर', 'मौदा'],
+    ['Vinay Pahlajani', 'नागपूर', 'राजभवन'],
+    ['Vinay Pahlajani', 'नागपूर', 'रामटेक'],
+    ['Vinay Pahlajani', 'नागपूर', 'वर्धमान नगर'],
+    ['Vinay Pahlajani', 'नागपूर', 'सावनेर'],
+    ['Vinay Pahlajani', 'नागपूर', 'हिंगणा'],
+    ['Mandar Gaikwad', 'नाशिक', 'इगतपुरी'],
+    ['Mandar Gaikwad', 'नाशिक', 'कळवण'],
+    ['Mandar Gaikwad', 'नाशिक', 'घोटी'],
+    ['Mandar Gaikwad', 'नाशिक', 'चांदवड'],
+    ['Mandar Gaikwad', 'नाशिक', 'जुने ओझर'],
+    ['Mandar Gaikwad', 'नाशिक', 'ताहाराबाद'],
+    ['Mandar Gaikwad', 'नाशिक', 'त्र्यंबकेश्वर जुने'],
+    ['Mandar Gaikwad', 'नाशिक', 'देवळा'],
+    ['Mandar Gaikwad', 'नाशिक', 'नवीन ओझर'],
+    ['Mandar Gaikwad', 'नाशिक', 'नांदगाव'],
+    ['Mandar Gaikwad', 'नाशिक', 'नामपूर'],
+    ['Mandar Gaikwad', 'नाशिक', 'नाशिक नवीन मध्यवर्ती'],
+    ['Mandar Gaikwad', 'नाशिक', 'नाशिक महामार्ग'],
+    ['Mandar Gaikwad', 'नाशिक', 'नाशिक मेळा'],
+    ['Mandar Gaikwad', 'नाशिक', 'नाशिक रोड'],
+    ['Mandar Gaikwad', 'नाशिक', 'नाशिक १'],
+    ['Mandar Gaikwad', 'नाशिक', 'नाशिक २'],
+    ['Mandar Gaikwad', 'नाशिक', 'निफाड'],
+    ['Mandar Gaikwad', 'नाशिक', 'पिंपळगाव'],
+    ['Mandar Gaikwad', 'नाशिक', 'पेठ'],
+    ['Mandar Gaikwad', 'नाशिक', 'भगूर'],
+    ['Mandar Gaikwad', 'नाशिक', 'मालेगाव जुने'],
+    ['Mandar Gaikwad', 'नाशिक', 'येवला'],
+    ['Mandar Gaikwad', 'नाशिक', 'लासलगाव'],
+    ['Mandar Gaikwad', 'नाशिक', 'वणी'],
+    ['Mandar Gaikwad', 'नाशिक', 'वावी'],
+    ['Mandar Gaikwad', 'नाशिक', 'विंचूर'],
+    ['Mandar Gaikwad', 'नाशिक', 'सटाणा'],
+    ['Mandar Gaikwad', 'नाशिक', 'सातपूर'],
+    ['Mandar Gaikwad', 'नाशिक', 'सिन्नर'],
+    ['Dashrath Palatwad', 'परभणी', 'आ. बाळापूर'],
+    ['Dashrath Palatwad', 'परभणी', 'औंढा'],
+    ['Dashrath Palatwad', 'परभणी', 'कळमनुरी'],
+    ['Dashrath Palatwad', 'परभणी', 'गंगाखेड'],
+    ['Dashrath Palatwad', 'परभणी', 'जिंतूर'],
+    ['Dashrath Palatwad', 'परभणी', 'परभणी'],
+    ['Dashrath Palatwad', 'परभणी', 'पाथरी'],
+    ['Dashrath Palatwad', 'परभणी', 'मानवत'],
+    ['Dashrath Palatwad', 'परभणी', 'वसमत'],
+    ['Dashrath Palatwad', 'परभणी', 'वारंगा फाटा'],
+    ['Dashrath Palatwad', 'परभणी', 'सेनगाव'],
+    ['Dashrath Palatwad', 'परभणी', 'सेलू'],
+    ['Dashrath Palatwad', 'परभणी', 'सोनपेठ'],
+    ['Dashrath Palatwad', 'परभणी', 'हिंगोली'],
+    ['Dayanand Palkar', 'पालघर', 'अर्नाळा'],
+    ['Dayanand Palkar', 'पालघर', 'गणेशपुरी'],
+    ['Dayanand Palkar', 'पालघर', 'जव्हार'],
+    ['Dayanand Palkar', 'पालघर', 'डहाणू'],
+    ['Dayanand Palkar', 'पालघर', 'तलासरी'],
+    ['Dayanand Palkar', 'पालघर', 'नवघर'],
+    ['Dayanand Palkar', 'पालघर', 'नालासोपारा'],
+    ['Dayanand Palkar', 'पालघर', 'पालघर'],
+    ['Dayanand Palkar', 'पालघर', 'बोईसर'],
+    ['Dayanand Palkar', 'पालघर', 'वज्रेश्वरी'],
+    ['Dayanand Palkar', 'पालघर', 'वसई'],
+    ['Dayanand Palkar', 'पालघर', 'विरार'],
+    ['Dayanand Palkar', 'पालघर', 'सफाळे'],
+    ['Sagar Bora', 'पुणे', 'आळेफाटा'],
+    ['Sagar Bora', 'पुणे', 'इंदापूर'],
+    ['Sagar Bora', 'पुणे', 'ओतूर'],
+    ['Sagar Bora', 'पुणे', 'घोडेगाव'],
+    ['Sagar Bora', 'पुणे', 'चाकण'],
+    ['Sagar Bora', 'पुणे', 'जुन्नर'],
+    ['Sagar Bora', 'पुणे', 'तळेगाव'],
+    ['Sagar Bora', 'पुणे', 'दौंड'],
+    ['Sagar Bora', 'पुणे', 'नारायणगाव'],
+    ['Sagar Bora', 'पुणे', 'नीरा'],
+    ['Sagar Bora', 'पुणे', 'न्हावरा'],
+    ['Sagar Bora', 'पुणे', 'पांडरे'],
+    ['Sagar Bora', 'पुणे', 'पिंपरी चिंचवड'],
+    ['Sagar Bora', 'पुणे', 'पुणे स्टेशन'],
+    ['Sagar Bora', 'पुणे', 'पौड'],
+    ['Sagar Bora', 'पुणे', 'बारामती'],
+    ['Sagar Bora', 'पुणे', 'वेल्हा'],
+    ['Sagar Bora', 'पुणे', 'भिगवण'],
+    ['Sagar Bora', 'पुणे', 'भोर'],
+    ['Sagar Bora', 'पुणे', 'मंचर'],
+    ['Sagar Bora', 'पुणे', 'मालेगाव'],
+    ['Sagar Bora', 'पुणे', 'मोरगाव'],
+    ['Sagar Bora', 'पुणे', 'राजगुरुनगर'],
+    ['Sagar Bora', 'पुणे', 'लोणावळा'],
+    ['Sagar Bora', 'पुणे', 'वडगाव निंबाळकर'],
+    ['Sagar Bora', 'पुणे', 'वालचंदनगर'],
+    ['Sagar Bora', 'पुणे', 'शिक्रापूर'],
+    ['Sagar Bora', 'पुणे', 'शिरूर'],
+    ['Sagar Bora', 'पुणे', 'शिवाजीनगर'],
+    ['Sagar Bora', 'पुणे', 'सासवड'],
+    ['Sagar Bora', 'पुणे', 'सुपा'],
+    ['Sagar Bora', 'पुणे', 'स्वारगेट'],
+    ['Dashrath Palatwad', 'बीड', 'अंबेजोगाई'],
+    ['Dashrath Palatwad', 'बीड', 'आष्टी'],
+    ['Dashrath Palatwad', 'बीड', 'कडा'],
+    ['Dashrath Palatwad', 'बीड', 'केज'],
+    ['Dashrath Palatwad', 'बीड', 'गेवराई'],
+    ['Dashrath Palatwad', 'बीड', 'घाटनांदूर'],
+    ['Dashrath Palatwad', 'बीड', 'तळवाडा'],
+    ['Dashrath Palatwad', 'बीड', 'तेलगाव'],
+    ['Dashrath Palatwad', 'बीड', 'धारूर'],
+    ['Dashrath Palatwad', 'बीड', 'नेकनूर'],
+    ['Dashrath Palatwad', 'बीड', 'परळी'],
+    ['Dashrath Palatwad', 'बीड', 'पाटोदा'],
+    ['Dashrath Palatwad', 'बीड', 'बीड'],
+    ['Dashrath Palatwad', 'बीड', 'माजलगाव'],
+    ['Vinay Pahlajani', 'बुलढाणा', 'आमडापूर'],
+    ['Vinay Pahlajani', 'बुलढाणा', 'खामगाव'],
+    ['Vinay Pahlajani', 'बुलढाणा', 'चिखली'],
+    ['Vinay Pahlajani', 'बुलढाणा', 'जळगाव जामोद'],
+    ['Vinay Pahlajani', 'बुलढाणा', 'देऊळगाव राजा'],
+    ['Vinay Pahlajani', 'बुलढाणा', 'धाड'],
+    ['Vinay Pahlajani', 'बुलढाणा', 'नांदुरा'],
+    ['Vinay Pahlajani', 'बुलढाणा', 'बुलढाणा'],
+    ['Vinay Pahlajani', 'बुलढाणा', 'मलकापूर'],
+    ['Vinay Pahlajani', 'बुलढाणा', 'मेहकर'],
+    ['Vinay Pahlajani', 'बुलढाणा', 'मोताळा'],
+    ['Vinay Pahlajani', 'बुलढाणा', 'लोणार'],
+    ['Vinay Pahlajani', 'बुलढाणा', 'शेगाव'],
+    ['Vinay Pahlajani', 'बुलढाणा', 'सिंदखेडराजा'],
+    ['Vinay Pahlajani', 'भंडारा', 'आमगाव'],
+    ['Vinay Pahlajani', 'भंडारा', 'गोंदिया'],
+    ['Vinay Pahlajani', 'भंडारा', 'गोरेगाव'],
+    ['Vinay Pahlajani', 'भंडारा', 'तिरोडा'],
+    ['Vinay Pahlajani', 'भंडारा', 'तुमसर'],
+    ['Vinay Pahlajani', 'भंडारा', 'देवरी'],
+    ['Vinay Pahlajani', 'भंडारा', 'पवनी'],
+    ['Vinay Pahlajani', 'भंडारा', 'भंडारा'],
+    ['Vinay Pahlajani', 'भंडारा', 'मोरगाव अर्जुनी'],
+    ['Vinay Pahlajani', 'भंडारा', 'मोहाडी'],
+    ['Vinay Pahlajani', 'भंडारा', 'लाखनी'],
+    ['Vinay Pahlajani', 'भंडारा', 'लाखांदूर'],
+    ['Vinay Pahlajani', 'भंडारा', 'साकोली'],
+    ['Dayanand Palkar', 'मुंबई', 'उरण'],
+    ['Dayanand Palkar', 'मुंबई', 'कुर्ला नेहरूनगर'],
+    ['Dayanand Palkar', 'मुंबई', 'पनवेल'],
+    ['Dayanand Palkar', 'मुंबई', 'परेल'],
+    ['Dayanand Palkar', 'मुंबई', 'मुंबई सेंट्रल'],
+    ['Vinay Pahlajani', 'यवतमाळ', 'आर्णी'],
+    ['Vinay Pahlajani', 'यवतमाळ', 'उमरखेड'],
+    ['Vinay Pahlajani', 'यवतमाळ', 'कळंब'],
+    ['Vinay Pahlajani', 'यवतमाळ', 'घाटंजी'],
+    ['Vinay Pahlajani', 'यवतमाळ', 'दारव्हा'],
+    ['Vinay Pahlajani', 'यवतमाळ', 'दिग्रस'],
+    ['Vinay Pahlajani', 'यवतमाळ', 'धानकी'],
+    ['Vinay Pahlajani', 'यवतमाळ', 'नेर'],
+    ['Vinay Pahlajani', 'यवतमाळ', 'पांढरकवडा'],
+    ['Vinay Pahlajani', 'यवतमाळ', 'पारवा'],
+    ['Vinay Pahlajani', 'यवतमाळ', 'पुसद'],
+    ['Vinay Pahlajani', 'यवतमाळ', 'बाभूळगाव'],
+    ['Vinay Pahlajani', 'यवतमाळ', 'महागाव'],
+    ['Vinay Pahlajani', 'यवतमाळ', 'यवतमाळ'],
+    ['Vinay Pahlajani', 'यवतमाळ', 'राळेगाव'],
+    ['Vinay Pahlajani', 'यवतमाळ', 'लाडखेड'],
+    ['Vinay Pahlajani', 'यवतमाळ', 'लोही'],
+    ['Vinay Pahlajani', 'यवतमाळ', 'वणी'],
+    ['Vinay Pahlajani', 'यवतमाळ', 'शेंबाळपिंपरी'],
+    ['Vinay Pahlajani', 'यवतमाळ', 'सडोबा सावली'],
+    ['Suyog Dixit', 'रत्नागिरी', 'खेड'],
+    ['Suyog Dixit', 'रत्नागिरी', 'गणपतीपुळे'],
+    ['Suyog Dixit', 'रत्नागिरी', 'गुहागर'],
+    ['Suyog Dixit', 'रत्नागिरी', 'चिपळूण मध्यवर्ती'],
+    ['Suyog Dixit', 'रत्नागिरी', 'चिपळूण शिवाजीनगर'],
+    ['Suyog Dixit', 'रत्नागिरी', 'दापोली'],
+    ['Suyog Dixit', 'रत्नागिरी', 'देवरुख'],
+    ['Suyog Dixit', 'रत्नागिरी', 'पाली'],
+    ['Suyog Dixit', 'रत्नागिरी', 'पावस'],
+    ['Suyog Dixit', 'रत्नागिरी', 'मंडणगड'],
+    ['Suyog Dixit', 'रत्नागिरी', 'माखजन'],
+    ['Suyog Dixit', 'रत्नागिरी', 'रत्नागिरी जिल्हाधिकारी कार्यालय'],
+    ['Suyog Dixit', 'रत्नागिरी', 'रत्नागिरी मध्यवर्ती'],
+    ['Suyog Dixit', 'रत्नागिरी', 'रहाटघर'],
+    ['Suyog Dixit', 'रत्नागिरी', 'राजापूर'],
+    ['Suyog Dixit', 'रत्नागिरी', 'लांजा'],
+    ['Suyog Dixit', 'रत्नागिरी', 'संगमेश्वर'],
+    ['Suyog Dixit', 'रत्नागिरी', 'साखरपा'],
+    ['Suyog Dixit', 'रत्नागिरी', 'हरणे स्टँड'],
+    ['Suyog Dixit', 'रायगड', 'अलिबाग'],
+    ['Suyog Dixit', 'रायगड', 'आंबेत'],
+    ['Suyog Dixit', 'रायगड', 'इंदापूर'],
+    ['Suyog Dixit', 'रायगड', 'कर्जत'],
+    ['Suyog Dixit', 'रायगड', 'ताला'],
+    ['Suyog Dixit', 'रायगड', 'नागोठणे'],
+    ['Suyog Dixit', 'रायगड', 'पाली'],
+    ['Suyog Dixit', 'रायगड', 'पेण'],
+    ['Suyog Dixit', 'रायगड', 'पोलादपूर'],
+    ['Suyog Dixit', 'रायगड', 'महाड'],
+    ['Suyog Dixit', 'रायगड', 'माणगाव'],
+    ['Suyog Dixit', 'रायगड', 'मुरूड'],
+    ['Suyog Dixit', 'रायगड', 'रामवाडी'],
+    ['Suyog Dixit', 'रायगड', 'रेवदंडा'],
+    ['Suyog Dixit', 'रायगड', 'रोहा'],
+    ['Suyog Dixit', 'रायगड', 'वडखळ'],
+    ['Suyog Dixit', 'रायगड', 'श्रीवर्धन'],
+    ['Mandar Gaikwad', 'लातूर', 'अहमदपूर'],
+    ['Mandar Gaikwad', 'लातूर', 'उदगीर'],
+    ['Mandar Gaikwad', 'लातूर', 'औसा जुने'],
+    ['Mandar Gaikwad', 'लातूर', 'औसा नवीन'],
+    ['Mandar Gaikwad', 'लातूर', 'कासार शिरशी'],
+    ['Mandar Gaikwad', 'लातूर', 'किनगाव'],
+    ['Mandar Gaikwad', 'लातूर', 'चाकूर'],
+    ['Mandar Gaikwad', 'लातूर', 'तांदुळजा'],
+    ['Mandar Gaikwad', 'लातूर', 'देवणी'],
+    ['Mandar Gaikwad', 'लातूर', 'नळेगाव'],
+    ['Mandar Gaikwad', 'लातूर', 'निलंगा'],
+    ['Mandar Gaikwad', 'लातूर', 'पानगाव'],
+    ['Mandar Gaikwad', 'लातूर', 'मुरूड'],
+    ['Mandar Gaikwad', 'लातूर', 'रेणापूर'],
+    ['Mandar Gaikwad', 'लातूर', 'लातूर बस स्थानक २'],
+    ['Mandar Gaikwad', 'लातूर', 'लातूर मध्यवर्ती'],
+    ['Mandar Gaikwad', 'लातूर', 'लातूर रेल्वे'],
+    ['Mandar Gaikwad', 'लातूर', 'लामजना'],
+    ['Mandar Gaikwad', 'लातूर', 'शिरूर अनंतपाळ'],
+    ['Mandar Gaikwad', 'लातूर', 'हाळी हंडरगुळी'],
+    ['Vinay Pahlajani', 'वर्धा', 'आर्वी'],
+    ['Vinay Pahlajani', 'वर्धा', 'आष्टी'],
+    ['Vinay Pahlajani', 'वर्धा', 'कारंजा'],
+    ['Vinay Pahlajani', 'वर्धा', 'जाम'],
+    ['Vinay Pahlajani', 'वर्धा', 'तळेगाव'],
+    ['Vinay Pahlajani', 'वर्धा', 'देवळी'],
+    ['Vinay Pahlajani', 'वर्धा', 'पुलगाव'],
+    ['Vinay Pahlajani', 'वर्धा', 'वर्धा'],
+    ['Vinay Pahlajani', 'वर्धा', 'समुद्रपूर'],
+    ['Vinay Pahlajani', 'वर्धा', 'सिंदी रेल्वे'],
+    ['Vinay Pahlajani', 'वर्धा', 'सेलू'],
+    ['Vinay Pahlajani', 'वर्धा', 'सेवाग्राम'],
+    ['Vinay Pahlajani', 'वर्धा', 'हिंगणघाट'],
+    ['Dayanand Palkar', 'सांगली', 'आटपाडी'],
+    ['Dayanand Palkar', 'सांगली', 'आष्टा'],
+    ['Dayanand Palkar', 'सांगली', 'इस्लामपूर'],
+    ['Dayanand Palkar', 'सांगली', 'कडेगाव'],
+    ['Dayanand Palkar', 'सांगली', 'कडेपूर'],
+    ['Dayanand Palkar', 'सांगली', 'कवठेमहांकाळ'],
+    ['Dayanand Palkar', 'सांगली', 'कासेगाव'],
+    ['Dayanand Palkar', 'सांगली', 'कुंडल'],
+    ['Dayanand Palkar', 'सांगली', 'कोकरूड'],
+    ['Dayanand Palkar', 'सांगली', 'खरसुंडी'],
+    ['Dayanand Palkar', 'सांगली', 'खानापूर'],
+    ['Dayanand Palkar', 'सांगली', 'जत'],
+    ['Dayanand Palkar', 'सांगली', 'तासगाव'],
+    ['Dayanand Palkar', 'सांगली', 'पलूस'],
+    ['Dayanand Palkar', 'सांगली', 'मिरज शहर'],
+    ['Dayanand Palkar', 'सांगली', 'विटा'],
+    ['Dayanand Palkar', 'सांगली', 'शिराळा'],
+    ['Dayanand Palkar', 'सांगली', 'सांगली'],
+    ['Sagar Bora', 'सातारा', 'अतीत'],
+    ['Sagar Bora', 'सातारा', 'उंब्रज'],
+    ['Sagar Bora', 'सातारा', 'औंध'],
+    ['Sagar Bora', 'सातारा', 'कराड'],
+    // ['Sagar Bora', 'सातारा', 'कलेढोण'],
+    ['Sagar Bora', 'सातारा', 'काशीळ'],
+    ['Sagar Bora', 'सातारा', 'कोरेगाव'],
+    ['Sagar Bora', 'सातारा', 'ढेबेवाडी'],
+    ['Sagar Bora', 'सातारा', 'तारळे'],
+    ['Sagar Bora', 'सातारा', 'दहिवडी'],
+    ['Sagar Bora', 'सातारा', 'पा. खंडाळा'],
+    ['Sagar Bora', 'सातारा', 'पाचगणी'],
+    ['Sagar Bora', 'सातारा', 'पाचवड'],
+    ['Sagar Bora', 'सातारा', 'पाटण'],
+    // ['Sagar Bora', 'सातारा', 'पुसेगाव'],
+    ['Sagar Bora', 'सातारा', 'पुसेसावळी'],
+    ['Sagar Bora', 'सातारा', 'फलटण'],
+    // ['Sagar Bora', 'सातारा', 'बावधन'],
+    ['Sagar Bora', 'सातारा', 'भुईंज'],
+    ['Sagar Bora', 'सातारा', 'मसूर'],
+    ['Sagar Bora', 'सातारा', 'महाबळेश्वर'],
+    ['Sagar Bora', 'सातारा', 'मायणी'],
+    ['Sagar Bora', 'सातारा', 'मेढा'],
+    ['Sagar Bora', 'सातारा', 'म्हसवड'],
+    ['Sagar Bora', 'सातारा', 'रहिमतपूर'],
+    ['Sagar Bora', 'सातारा', 'राजवाडा'],
+    ['Sagar Bora', 'सातारा', 'वडूज'],
+    ['Sagar Bora', 'सातारा', 'वाई'],
+    ['Sagar Bora', 'सातारा', 'शिंगणापूर'],
+    ['Sagar Bora', 'सातारा', 'शिरवळ'],
+    ['Sagar Bora', 'सातारा', 'सातारा'],
+    ['Suyog Dixit', 'सिंधुदुर्ग', 'आंबोली'],
+    ['Suyog Dixit', 'सिंधुदुर्ग', 'ओरोस'],
+    ['Suyog Dixit', 'सिंधुदुर्ग', 'कणकवली'],
+    ['Suyog Dixit', 'सिंधुदुर्ग', 'कासल'],
+    ['Suyog Dixit', 'सिंधुदुर्ग', 'कुडाळ महामार्ग'],
+    ['Suyog Dixit', 'सिंधुदुर्ग', 'कुडाळ शहर'],
+    ['Suyog Dixit', 'सिंधुदुर्ग', 'खारेपाटण'],
+    ['Suyog Dixit', 'सिंधुदुर्ग', 'तराळ'],
+    ['Suyog Dixit', 'सिंधुदुर्ग', 'देवगड'],
+    ['Suyog Dixit', 'सिंधुदुर्ग', 'दोडामार्ग'],
+    ['Suyog Dixit', 'सिंधुदुर्ग', 'फोंडाघाट'],
+    ['Suyog Dixit', 'सिंधुदुर्ग', 'बांदा'],
+    ['Suyog Dixit', 'सिंधुदुर्ग', 'बेतीम (पणजी)'],
+    ['Suyog Dixit', 'सिंधुदुर्ग', 'मालवण'],
+    ['Suyog Dixit', 'सिंधुदुर्ग', 'विजयदुर्ग'],
+    ['Suyog Dixit', 'सिंधुदुर्ग', 'वेंगुर्ला'],
+    ['Suyog Dixit', 'सिंधुदुर्ग', 'वैभववाडी'],
+    ['Suyog Dixit', 'सिंधुदुर्ग', 'शिरोडा'],
+    ['Suyog Dixit', 'सिंधुदुर्ग', 'सावंतवाडी'],
+    ['Suyog Dixit', 'सिंधुदुर्ग', 'सिंधुदुर्ग जिल्हाधिकारी कार्यालय'],
+    ['Sagar Bora', 'सोलापूर', 'अकलूज जुने'],
+    ['Sagar Bora', 'सोलापूर', 'अकलूज नवीन'],
+    ['Sagar Bora', 'सोलापूर', 'अक्कलकोट'],
+    ['Sagar Bora', 'सोलापूर', 'करमाळा'],
+    ['Sagar Bora', 'सोलापूर', 'कुमठा नाका'],
+    ['Sagar Bora', 'सोलापूर', 'कुर्डुवाडी'],
+    ['Sagar Bora', 'सोलापूर', 'जेऊर'],
+    ['Sagar Bora', 'सोलापूर', 'टेंभुर्णी'],
+    ['Sagar Bora', 'सोलापूर', 'नातेपुते'],
+    ['Sagar Bora', 'सोलापूर', 'पंढरपूर जुने'],
+    ['Sagar Bora', 'सोलापूर', 'पंढरपूर नवीन'],
+    ['Sagar Bora', 'सोलापूर', 'बार्शी'],
+    ['Sagar Bora', 'सोलापूर', 'मंगळवेढा'],
+    ['Sagar Bora', 'सोलापूर', 'माढा'],
+    ['Sagar Bora', 'सोलापूर', 'माळशिरस'],
+    ['Sagar Bora', 'सोलापूर', 'मोडनिंब'],
+    ['Sagar Bora', 'सोलापूर', 'मोहोळ'],
+    ['Sagar Bora', 'सोलापूर', 'वाघदरी'],
+    ['Sagar Bora', 'सोलापूर', 'वैराग'],
+    ['Sagar Bora', 'सोलापूर', 'संगोला'],
+    ['Sagar Bora', 'सोलापूर', 'सोलापूर']
+  ];
+}
+
+// ======================================================================
+//  MASTER DATA — 32 materials
+// ======================================================================
+function getMaterialMasterRows_() {
+  return [
+    [1, 'Step Ladder Aluminum', 'नग', ''],
+    [2, 'Pump Spray', 'नग', ''],
+    [3, 'Mask', 'नग', ''],
+    [4, 'Duster Full Size', 'पॅकेट(१ डजन)', ''],
+    [5, 'Bucket 20 Ltr.', 'नग', ''],
+    [6, 'Dust Pan', 'नग', ''],
+    [7, 'Odonil', 'नग', ''],
+    [8, 'Toilet Cleaner Liquid', 'कॅन(५ लि)', ''],
+    [9, 'Hard Broom', 'नग', ''],
+    [10, 'Bamboo', 'नग', ''],
+    [11, 'Soft Broom', 'नग', ''],
+    [12, 'Wet Mop Refill', 'नग', ''],
+    [13, 'Air Freshener', 'नग', ''],
+    [14, 'Dry Mop', 'नग', ''],
+    [15, 'Dry Mop Refill', 'नग', ''],
+    [16, 'Duster Yellow', 'पॅकेट(१ डजन)', ''],
+    [17, 'Garbage Bag', 'किलो', ''],
+    [18, 'Glass Cleaner Liquid (Colin)', 'कॅन(५ लि)', ''],
+    [19, 'Lyzol / Harpic Floor Cleaner', 'कॅन(५ लि)', ''],
+    [20, 'Naphthalene Balls', 'किलो', ''],
+    [21, 'Scotch Brite', 'नग', ''],
+    [22, 'Nirma', 'किलो', ''],
+    [23, 'Toilet Brush', 'नग', ''],
+    [24, 'Wet Mop', 'नग', ''],
+    [25, 'Wiper (Large)', 'नग', ''],
+    [26, 'Wiper (Small) Bus Washing', 'नग', ''],
+    [27, 'Machine Wash Shampoo', 'कॅन(५ लि)', ''],
+    [28, 'Hand Wash', 'कॅन(५ लि)', ''],
+    [29, 'Rubber Gloves', 'जोडी', ''],
+    [30, 'Phenyl', 'कॅन(५ लि)', ''],
+    [31, 'Acid', 'कॅन(५ लि)', ''],
+    [32, 'Bleaching Powder', 'किलो', '']
+  ];
+}
+
+// ======================================================================
+//  REAL ISSUED QTY DATA — per station per material
+//  (Abbreviated; your actual data from the xlsx goes here)
+// ======================================================================
 function getRealIssuedQtyData_() {
   return [
     ['अहिल्यानगर', 'अकोले', 1, 8, 14, 1, 2, 2, 12, 9, 19, 10, 2, 7, 4, 2, 8, 2, 15, 4, 4, 4, 12, 6, 8, 4, 2, 4, 14, 2, 28, 5, '', ''],
@@ -784,1215 +1638,5 @@ function getRealIssuedQtyData_() {
     ['यवतमाळ', 'वणी', 1, 8, 14, 1, 2, 2, 8, 6, 16, 10, 2, 7, 4, 2, 8, 2, 15, 4, 4, 4, 12, 6, 8, 4, 2, 4, 19, 2, 28, 5, '', ''],
     ['यवतमाळ', 'शेंबाळपिंपरी', 0, 8, 2, 1, 2, 2, 0, 0, 9, 10, 2, 2, 4, 2, 8, 2, 15, 4, 4, 4, 12, 6, 8, 4, 2, 4, 0, 1, 4, 1, '', ''],
     ['यवतमाळ', 'सडोबा सावली', 0, 8, 2, 1, 2, 2, 0, 0, 5, 10, 2, 2, 4, 2, 8, 2, 15, 4, 4, 4, 12, 6, 8, 4, 2, 4, 0, 1, 4, 1, '', ''],
-  ];
-}
-
-function getIssuedQtyMap_() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sheet = ss.getSheetByName(SHEET_ISSUEDQTY);
-  var map = {};
-  if (!sheet) return map;
-
-  var lastRow = sheet.getLastRow();
-  if (lastRow < 2) return map;
-
-  // स्तंभ: District(1) | Station(2) | Material Name(3) | Unit(4) | Issued Qty(5)
-  var data = sheet.getRange(2, 1, lastRow - 1, 5).getValues(); // District ते Issued Qty
-  for (var i = 0; i < data.length; i++) {
-    var district = data[i][0];
-    var station = data[i][1];
-    var materialName = data[i][2];
-    var qty = data[i][4];
-    if (!district || !station || !materialName) continue;
-    var key = _cleanStr(district) + '||' + _cleanStr(station) + '||' + _cleanStr(materialName);
-    map[key] = qty;
-  }
-  return map;
-}
-
-
-function ensureDashboardSheet_() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sheet = ss.getSheetByName(SHEET_DASHBOARD);
-  if (!sheet) {
-    sheet = ss.insertSheet(SHEET_DASHBOARD);
-  }
-  if (sheet.getLastRow() === 0) {
-    sheet.getRange('A1').setValue('MSRTC Material Status — Dashboard');
-    sheet.getRange('A1').setFontWeight('bold').setFontSize(14).setFontColor('#002B6B');
-
-    sheet.getRange('A3').setValue('एकूण स्थानके (Total Stations):');
-    sheet.getRange('B3').setFormula('=COUNTA(Base!C2:C1000)');
-
-    sheet.getRange('A4').setValue('एकूण सबमिशन (Total Submissions):');
-    sheet.getRange('B4').setFormula('=COUNTA(Responses!A2:A10000)');
-
-    sheet.getRange('A5').setValue('आज सबमिट झालेली स्थानके (Submitted Today):');
-    sheet.getRange('B5').setFormula('=COUNTIF(Responses!E2:E10000, TEXT(TODAY(),"dd/MM/yyyy"))');
-
-    sheet.getRange('A6').setValue('प्रलंबित स्थानके (Pending Stations):');
-    sheet.getRange('B6').setFormula('=B3-COUNTUNIQUE(Responses!C2:C10000)');
-
-    sheet.getRange('A1:B6').setFontFamily('Arial');
-    sheet.autoResizeColumns(1, 2);
-  }
-}
-
-/**
- * ensureConfigSheet_ — Config शीट तयार करते (नसेल तर): App version, last update.
- */
-function ensureConfigSheet_() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sheet = ss.getSheetByName(SHEET_CONFIG);
-  if (!sheet) {
-    sheet = ss.insertSheet(SHEET_CONFIG);
-  }
-  if (sheet.getLastRow() === 0) {
-    sheet.getRange('A1:B1').setValues([['Key', 'Value']]);
-    sheet.getRange('A1:B1').setFontWeight('bold').setBackground('#002B6B').setFontColor('#FFFFFF');
-    sheet.getRange('A2:B2').setValues([['App Version', APP_VERSION]]);
-    sheet.getRange('A3:B3').setValues([['Last Updated', Utilities.formatDate(new Date(), 'Asia/Kolkata', 'dd/MM/yyyy HH:mm:ss')]]);
-    sheet.getRange('A4:B4').setValues([['Total Materials', TOTAL_MATERIALS]]);
-    sheet.autoResizeColumns(1, 2);
-  }
-}
-
-/**
- * touchConfigLastUpdated_ — Config शीटमधील "Last Updated" वेळ रिफ्रेश करते.
- */
-function touchConfigLastUpdated_() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sheet = ss.getSheetByName(SHEET_CONFIG);
-  if (!sheet) return;
-  var data = sheet.getDataRange().getValues();
-  for (var i = 0; i < data.length; i++) {
-    if (data[i][0] === 'Last Updated') {
-      sheet.getRange(i + 1, 2).setValue(Utilities.formatDate(new Date(), 'Asia/Kolkata', 'dd/MM/yyyy HH:mm:ss'));
-      return;
-    }
-  }
-}
-
-/**
- * getBaseData — क्लायंटला जिल्हे, स्थानके, PM मॅपिंग, मटेरियल यादी पुरवते.
- * अॅप सुरू होताना एकदाच कॉल होते; क्लायंट याला कॅश करतो.
- */
-function getBaseData() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sheet = ss.getSheetByName(SHEET_BASE);
-  if (!sheet) {
-    throw new Error('Base sheet सापडली नाही. कृपया प्रथम setupBaseSheet() रन करा.');
-  }
-
-  var lastRow = sheet.getLastRow();
-
-  // ---- Section A: PM | District | Station ----
-  var stations = [];
-  var districtSet = {};
-  if (lastRow >= 2) {
-    var rangeA = sheet.getRange(2, 1, lastRow - 1, 3).getValues();
-    for (var i = 0; i < rangeA.length; i++) {
-      var pm = _cleanStr(rangeA[i][0]);
-      var district = _cleanStr(rangeA[i][1]);
-      var station = _cleanStr(rangeA[i][2]);
-      if (!district && !station) continue; // रिकामी ओळ वगळा
-      stations.push({ pm: pm, district: district, station: station });
-      districtSet[district] = true;
-    }
-  }
-
-  var districts = Object.keys(districtSet).sort(function (a, b) {
-    return a.localeCompare(b, 'mr');
-  });
-
-  // ---- Section B: Sr.No | Material Name | Unit | Default Issued Qty ----
-  var materials = [];
-  var lastRowB = sheet.getRange('E1:E1000').getValues().filter(function (r) { return r[0] !== ''; }).length;
-  if (lastRowB >= 2) {
-    var rangeB = sheet.getRange(2, 5, lastRowB - 1, 4).getValues();
-    for (var j = 0; j < rangeB.length; j++) {
-      if (rangeB[j][1] === '') continue;
-      materials.push({
-        srNo: rangeB[j][0],
-        name: _cleanStr(rangeB[j][1]),
-        unit: rangeB[j][2]
-      });
-    }
-  }
-
-  return {
-    stations: stations,
-    districts: districts,
-    materials: materials,
-    totalMaterials: materials.length
-  };
-}
-
-/**
- * getIssuedQtyForStation — दिलेल्या जिल्हा+स्थानकासाठी प्रत्येक मटेरियलची "Issued Qty"
- * (आपल्याला देण्यात आलेली मटेरियल ची संख्या) IssuedQty शीटमधून परत करते.
- * क्लायंट हे Screen 1 → Screen 2 जाताना, निवडलेल्या जिल्हा+स्थानकासाठी कॉल करतो.
- * टीप: District देखील पाठवणे आवश्यक आहे — काही स्थानकांची नावे वेगवेगळ्या
- * जिल्ह्यांत सारखीच आहेत (उदा. "कारंजा" — अकोला आणि वर्धा दोन्हीत).
- * परतावा: { "Material Name": qty, ... }  — qty रिकामी असल्यास '' राहते.
- */
-function getIssuedQtyForStation(district, station) {
-  var map = getIssuedQtyMap_();
-  var result = {};
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var baseSheet = ss.getSheetByName(SHEET_BASE);
-  if (!baseSheet) return result;
-
-  var lastRowB = baseSheet.getRange('E1:E1000').getValues().filter(function (r) { return r[0] !== ''; }).length;
-  if (lastRowB < 2) return result;
-
-  var dClean = _cleanStr(district);
-  var sClean = _cleanStr(station);
-
-  var rangeB = baseSheet.getRange(2, 5, lastRowB - 1, 4).getValues();
-  for (var j = 0; j < rangeB.length; j++) {
-    var materialName = rangeB[j][1];
-    if (materialName === '') continue;
-    var key = dClean + '||' + sClean + '||' + _cleanStr(materialName);
-    result[materialName] = (key in map) ? map[key] : '';
-  }
-  return result;
-}
-
-/**
- * checkDuplicateToday — दिलेल्या जिल्हा+स्थानकासाठी आज आधीच सबमिशन झाले आहे का तपासते.
- * (फक्त इशारा देण्यासाठी — सबमिशन ब्लॉक करत नाही.)
- * टीप: District देखील जुळवले जाते, कारण काही स्थानकांची नावे वेगवेगळ्या
- * जिल्ह्यांत सारखीच आहेत.
- */
-function checkDuplicateToday(district, station, dateStr) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sheet = ss.getSheetByName(SHEET_RESPONSES);
-  if (!sheet) return false;
-  return findResponseRow_(sheet, district, station, dateStr) !== -1;
-}
-
-/**
- * deleteResponse — एखाद्या विशिष्ट नोंदीची ओळ कायमची हटवते.
- */
-function deleteResponse(district, station, dateStr) {
-  var lock = LockService.getScriptLock();
-  var gotLock = false;
-  try {
-    gotLock = lock.tryLock(10000);
-    if (!gotLock) {
-      return { success: false, error: 'सर्व्हर व्यस्त आहे, कृपया पुन्हा प्रयत्न करा.' };
-    }
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
-    var sheet = ss.getSheetByName(SHEET_RESPONSES);
-    if (!sheet || sheet.getLastRow() < 2) {
-      return { success: false, error: 'हटवण्यासाठी नोंद सापडली नाही.' };
-    }
-    var targetRow = findResponseRow_(sheet, district, station, dateStr);
-    if (targetRow === -1) {
-      return { success: false, error: 'हटवण्यासाठी नोंद सापडली नाही.' };
-    }
-    sheet.deleteRow(targetRow);
-    return { success: true };
-  } catch (err) {
-    return { success: false, error: 'त्रुटी: ' + err.message };
-  } finally {
-    if (gotLock) lock.releaseLock();
-  }
-}
-
-/**
- * _cleanStr — स्ट्रिंगमधील सर्व प्रकारची व्हाइटस्पेस, अदृश्य कॅरेक्टर्स काढून ट्रिम करते.
- * सर्व युनिकोड व्हाइटस्पेस कॅरेक्टर्स ( , ​, ‌, ‍, ﻿, इ.) हाताळते.
- * हे फंक्शन district/station नावांची तुलना करताना उपयोगी आहे.
- */
-function _cleanStr(str) {
-  var s = String(str || '');
-  try { s = s.normalize('NFC'); } catch (e) {}
-  // \uXXXX escapes for GAS editor compatibility
-  return s.replace(/[\s\u00A0\u200B\u200C\u200D\uFEFF\u2000-\u200F\u2028\u2029\u202F\u205F\u3000]+/g, ' ').trim();
-}
-
-/**
- * _normDateForComp — सेलमधील व्हॅल्यू (Date ऑब्जेक्ट किंवा स्ट्रिंग) dd/MM/yyyy मध्ये रूपांतरित करते.
- */
-function _normDateForComp(val) {
-  if (val instanceof Date && !isNaN(val)) {
-    var dd = ('0' + val.getDate()).slice(-2);
-    var mm = ('0' + (val.getMonth() + 1)).slice(-2);
-    return dd + '/' + mm + '/' + val.getFullYear();
-  }
-  return String(val || '').trim();
-}
-
-/**
- * getSubmissionsForStation — एखाद्या स्थानकाच्या सर्व पूर्वीच्या नोंदी परत करते.
- * getValues() वापरते (getDisplayValues() ऐवजी) — Date ऑब्जेक्ट्स हाताळण्यासाठी.
- */
-function getSubmissionsForStation(district, station) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sheet = ss.getSheetByName(SHEET_RESPONSES);
-  if (!sheet) {
-    var allSheets = ss.getSheets();
-    for (var s = 0; s < allSheets.length; s++) {
-      if (allSheets[s].getName().toLowerCase().indexOf('response') !== -1) {
-        sheet = allSheets[s];
-        break;
-      }
-    }
-  }
-  if (!sheet || sheet.getLastRow() < 2) return [];
-
-  var districtClean = _cleanStr(district);
-  var stationClean = _cleanStr(station);
-
-  var lastRow = sheet.getLastRow();
-  var data = sheet.getRange(2, 1, lastRow - 1, 5).getValues();  // getValues() वापरतो, getDisplayValues() नाही
-  var results = [];
-  for (var i = 0; i < data.length; i++) {
-    var rowDistrict = _cleanStr(data[i][1]);
-    var rowStation = _cleanStr(data[i][2]);
-    if (rowDistrict === districtClean && rowStation === stationClean) {
-      results.push({
-        timestamp: _normDateForComp(data[i][0]),
-        pm: _cleanStr(data[i][3]),
-        date: _normDateForComp(data[i][4])
-      });
-    }
-  }
-  results.sort(function (a, b) { return String(b.date).localeCompare(String(a.date)); });
-  return results;
-}
-
-/**
- * normalizeDate_ — Date ऑब्जेक्ट किंवा स्ट्रिंग dd/MM/yyyy मध्ये बदलते.
- */
-function normalizeDate_(val) {
-  if (val instanceof Date) {
-    var dd = ('0' + val.getDate()).slice(-2);
-    var mm = ('0' + (val.getMonth() + 1)).slice(-2);
-    return dd + '/' + mm + '/' + val.getFullYear();
-  }
-  return String(val).trim();
-}
-
-/**
- * findResponseRow_ — district+station+date ने Responses शीटमध्ये ओळ शोधते.
- * getValues() + _cleanStr / _normDateForComp वापरते — Date ऑब्जेक्ट्स आणि
- * युनिकोड व्हाइटस्पेस अचूकपणे हाताळण्यासाठी.
- * Returns शीटमधील ओळ क्रमांक (1-based) किंवा -1.
- */
-function findResponseRow_(sheet, district, station, dateStr) {
-  var lastRow = sheet.getLastRow();
-  if (lastRow < 2) return -1;
-  var d = _cleanStr(district);
-  var s = _cleanStr(station);
-  var dt = _normDateForComp(dateStr);
-  var meta = sheet.getRange(2, 1, lastRow - 1, 5).getValues();  // getValues() वापरतो
-  for (var i = 0; i < meta.length; i++) {
-    if (_cleanStr(meta[i][1]) === d && _cleanStr(meta[i][2]) === s && _normDateForComp(meta[i][4]) === dt) {
-      return i + 2;
-    }
-  }
-  return -1;
-}
-
-/**
- * getSubmissionForEdit — एका विशिष्ट नोंदीचा संपूर्ण मटेरियल डेटा परत करते (pre-fill साठी).
- * 🛑 प्रत्येक ओळीच्या स्वतःच्या रुंदीवरून colsPerMat डिटेक्ट करते.
- * जुन्या (३-कॉलम) आणि नवीन (५-कॉलम) दोन्ही डेटा योग्यरीत्या वाचता येतो.
- */
-function getSubmissionForEdit(district, station, dateStr) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sheet = ss.getSheetByName(SHEET_RESPONSES);
-  if (!sheet || sheet.getLastRow() < 2) return null;
-
-  var targetRow = findResponseRow_(sheet, district, station, dateStr);
-  if (targetRow === -1) return null;
-
-  // 🛑 शीटची रचना: [5 meta cols] + [32×3 (R,S,E)] + [32×2 (LP, LPQty)]
-  // म्हणून 5 + j*3 वरून R,S,E वाचा, आणि 5+96 + j*2 वरून LP, LPQty वाचा
-  var maxCol = sheet.getLastColumn();
-  var rowRange = sheet.getRange(targetRow, 1, 1, maxCol);
-  var rowData = rowRange.getValues()[0];
-  var hasLP = (maxCol >= 5 + TOTAL_MATERIALS * 3 + 1);
-  var RSE_START = 5;
-  var LP_START = 5 + TOTAL_MATERIALS * 3;
-
-  var materials = [];
-  for (var j = 0; j < TOTAL_MATERIALS; j++) {
-    var baseRSE = RSE_START + (j * 3);
-    var received = rowData[baseRSE];
-    var sufficient = rowData[baseRSE + 1];
-    var extra = rowData[baseRSE + 2];
-    if (hasLP) {
-      var baseLP = LP_START + (j * 2);
-      var lp = rowData[baseLP];
-      var lpQty = rowData[baseLP + 1];
-    } else {
-      var lp = '';
-      var lpQty = '';
-    }
-
-    var applicable = (received !== 'N/A');
-    materials.push({
-      applicable: applicable,
-      received: applicable ? String(received) : '',
-      sufficient: applicable ? String(sufficient) : '',
-      extra: applicable ? String(extra) : '',
-      locallyPurchased: applicable ? String(lp) : '',
-      locallyPurchasedQty: applicable ? String(lpQty) : ''
-    });
-  }
-  return { pm: String(rowData[3]).trim(), materials: materials };
-}
-
-/**
- * updateResponse — पूर्वीची नोंद अपडेट (ओव्हरराईट) करते.
- */
-function updateResponse(payload) {
-  if (!payload || !payload.district || !payload.station || !payload.pm || !payload.date) {
-    return { success: false, error: 'आवश्यक माहिती अपूर्ण आहे (जिल्हा/स्थानक/PM/तारीख).' };
-  }
-  if (!payload.materials || payload.materials.length !== TOTAL_MATERIALS) {
-    return { success: false, error: 'मटेरियल यादीची लांबी ' + TOTAL_MATERIALS + ' असावी.' };
-  }
-
-  var anyApplicable = false;
-  for (var i = 0; i < payload.materials.length; i++) {
-    var m = payload.materials[i];
-    if (!m.applicable) continue;
-    anyApplicable = true;
-    var receivedNum = Number(m.received);
-    if (m.received === '' || m.received === null || m.received === undefined || isNaN(receivedNum) || receivedNum < 0) {
-      return { success: false, error: 'मटेरियल क्र. ' + (i + 1) + ' साठी "प्राप्त झालेली संख्या" वैध आकडा नाही.' };
-    }
-    if (m.sufficient !== 'होय' && m.sufficient !== 'नाही') {
-      return { success: false, error: 'मटेरियल क्र. ' + (i + 1) + ' साठी "पुरेसे?" निवडलेले नाही.' };
-    }
-    if (m.sufficient === 'नाही') {
-      var extraNum = Number(m.extra);
-      if (m.extra === '' || m.extra === null || m.extra === undefined || isNaN(extraNum) || extraNum <= 0) {
-        return { success: false, error: 'मटेरियल क्र. ' + (i + 1) + ' साठी "अतिरिक्त आवश्यक संख्या" भरलेली नाही.' };
-      }
-      var receivedQtyForThis = Number(m.received) || 0;
-      var issuedQtyForThis = Number(m.issuedQty) || 0;
-      // आपत्कालीन: प्राप्त संख्या < दिलेली संख्या असल्यास मर्यादा नाही
-      if (receivedQtyForThis >= issuedQtyForThis) {
-        var maxAllowedExtra = Math.ceil(receivedQtyForThis * 0.4);
-        if (receivedQtyForThis > 0 && extraNum > maxAllowedExtra) {
-          return {
-            success: false,
-            error: 'मटेरियल क्र. ' + (i + 1) + ' साठी अतिरिक्त संख्या (' + extraNum + ') अनुज्ञेय कमाल मर्यादेपेक्षा (' + maxAllowedExtra + ' — प्राप्त संख्येच्या 40%) जास्त आहे.'
-          };
-        }
-      }
-    }
-    // ---- नवीन: स्वतः स्थानिक पातळीवर खरेदी केले का? ----
-    // ---- स्वतः स्थानिक पातळीवर खरेदी — optional, default नाही ----
-  }
-  if (!anyApplicable) {
-    return { success: false, error: 'या स्थानकासाठी कोणतेही मटेरियल लागू नाही.' };
-  }
-
-  var lock = LockService.getScriptLock();
-  var gotLock = false;
-  try {
-    gotLock = lock.tryLock(10000);
-    if (!gotLock) {
-      return { success: false, error: 'सर्व्हर व्यस्त आहे, कृपया पुन्हा प्रयत्न करा.' };
-    }
-
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
-    var sheet = ss.getSheetByName(SHEET_RESPONSES);
-    if (!sheet || sheet.getLastRow() < 2) {
-      return { success: false, error: 'अपडेट करण्यासाठी मूळ नोंद सापडली नाही.' };
-    }
-
-    var targetRow = findResponseRow_(sheet, payload.district, payload.station, payload.date);
-    if (targetRow === -1) {
-      return { success: false, error: 'अपडेट करण्यासाठी मूळ नोंद सापडली नाही.' };
-    }
-
-    var timestamp = Utilities.formatDate(new Date(), 'Asia/Kolkata', 'dd/MM/yyyy HH:mm:ss');
-    // 🛑 शीट रचना: [5 meta] + [32×3 RSE] + [32×2 LP] — दोन ब्लॉकमध्ये लिहा
-    var rseBlock = [];
-    var lpBlock = [];
-    var sufficientCount = 0, insufficientCount = 0, totalExtra = 0, applicableCount = 0;
-    for (var j = 0; j < payload.materials.length; j++) {
-      var mat = payload.materials[j];
-      if (!mat.applicable) {
-        rseBlock.push('N/A'); rseBlock.push('N/A'); rseBlock.push('');
-        lpBlock.push('N/A'); lpBlock.push('');
-        continue;
-      }
-      applicableCount++;
-      rseBlock.push(Number(mat.received));
-      rseBlock.push(mat.sufficient);
-      var extraVal = mat.sufficient === 'नाही' ? Number(mat.extra) : 0;
-      rseBlock.push(extraVal);
-      lpBlock.push('नाही'); lpBlock.push('');
-      if (mat.sufficient === 'होय') { sufficientCount++; }
-      else { insufficientCount++; totalExtra += extraVal; }
-    }
-    var row = [timestamp, payload.district, payload.station, payload.pm, payload.date]
-      .concat(rseBlock).concat(lpBlock);
-
-    sheet.getRange(targetRow, 1, 1, row.length).setValues([row]);
-    touchConfigLastUpdated_();
-
-    return {
-      success: true,
-      updated: true,
-      summary: {
-        applicableCount: applicableCount,
-        sufficientCount: sufficientCount,
-        insufficientCount: insufficientCount,
-        totalExtra: totalExtra,
-        timestamp: timestamp
-      }
-    };
-  } catch (err) {
-    return { success: false, error: 'त्रुटी: ' + err.message };
-  } finally {
-    if (gotLock) lock.releaseLock();
-  }
-}
-
-/**
- * submitResponse — पडताळणी करून Responses शीटमध्ये एक ओळ जोडते.
- * काही स्थानकांना सर्व 32 मटेरियल्स लागू नसतात — जे मटेरियल त्या स्थानकासाठी
- * लागू नाही (Issued Qty खरोखर 0 असल्यास — रिकामी/अद्याप-न-भरलेली संख्या लागू-नाही मानली जात नाही),
- * ते payload मध्ये applicable:false असे येते
- * आणि Responses शीटमध्ये त्या स्लॉटसाठी रिकामी नोंद ठेवली जाते (N/A).
- *
- * payload = {
- *   district, station, pm, date,
- *   materials: [ { applicable, received, sufficient, extra }, ... ]   // नेहमी लांबी 32 (Sr.No क्रमाने)
- * }
- */
-function submitResponse(payload) {
-  if (!payload || !payload.district || !payload.station || !payload.pm || !payload.date) {
-    return { success: false, error: 'आवश्यक माहिती अपूर्ण आहे (जिल्हा/स्थानक/PM/तारीख).' };
-  }
-  if (!payload.materials || payload.materials.length !== TOTAL_MATERIALS) {
-    return { success: false, error: 'मटेरियल यादीची लांबी ' + TOTAL_MATERIALS + ' असावी.' };
-  }
-
-  // ---- डुप्लिकेट हार्ड ब्लॉक (लॉकच्या आधी — जलद तपासणी) ----
-  if (checkDuplicateToday(payload.district, payload.station, payload.date)) {
-    return {
-      success: false,
-      duplicateBlocked: true,
-      error: '⚠️ या स्थानकासाठी ' + payload.date + ' रोजी आधीच एक नोंद सबमिट झालेली आहे.\n\nएकाच दिवशी एकाच स्थानकासाठी दुसरी नोंद करण्याची परवानगी नाही.'
-    };
-  }
-
-  // ---- सर्व्हर-साईड पडताळणी ----
-  var anyApplicable = false;
-  for (var i = 0; i < payload.materials.length; i++) {
-    var m = payload.materials[i];
-    if (!m.applicable) continue;
-    anyApplicable = true;
-    var receivedNum = Number(m.received);
-    if (m.received === '' || m.received === null || m.received === undefined || isNaN(receivedNum) || receivedNum < 0) {
-      return { success: false, error: 'मटेरियल क्र. ' + (i + 1) + ' साठी "प्राप्त झालेली संख्या" वैध आकडा नाही.' };
-    }
-    if (m.sufficient !== 'होय' && m.sufficient !== 'नाही') {
-      return { success: false, error: 'मटेरियल क्र. ' + (i + 1) + ' साठी "पुरेसे?" निवडलेले नाही.' };
-    }
-    if (m.sufficient === 'नाही') {
-      var extraNum = Number(m.extra);
-      if (m.extra === '' || m.extra === null || m.extra === undefined || isNaN(extraNum) || extraNum <= 0) {
-        return { success: false, error: 'मटेरियल क्र. ' + (i + 1) + ' साठी "अतिरिक्त आवश्यक संख्या" भरलेली नाही.' };
-      }
-      // ---- नवीन: अतिरिक्त संख्या Issued Qty च्या जास्तीत जास्त 40% पर्यंतच मर्यादित ----
-      var receivedQtyForThis = Number(m.received) || 0;
-      var issuedQtyForThis = Number(m.issuedQty) || 0;
-      // आपत्कालीन: प्राप्त संख्या < दिलेली संख्या असल्यास मर्यादा नाही
-      if (receivedQtyForThis >= issuedQtyForThis) {
-        var maxAllowedExtra = Math.ceil(receivedQtyForThis * 0.4);
-        if (receivedQtyForThis > 0 && extraNum > maxAllowedExtra) {
-          return {
-            success: false,
-            error: 'मटेरियल क्र. ' + (i + 1) + ' साठी अतिरिक्त संख्या (' + extraNum + ') अनुज्ञेय कमाल मर्यादेपेक्षा (' + maxAllowedExtra + ' — प्राप्त संख्येच्या 40%) जास्त आहे. कृपया योग्य संख्या नमूद करा.'
-          };
-        }
-      }
-    }
-    // ---- नवीन: स्वतः स्थानिक पातळीवर खरेदी केले का? ----
-    // ---- स्वतः स्थानिक पातळीवर खरेदी — optional, default नाही ----
-  }
-  if (!anyApplicable) {
-    return { success: false, error: 'या स्थानकासाठी कोणतेही मटेरियल लागू नाही. कृपया IssuedQty शीट तपासा.' };
-  }
-  var lock = LockService.getScriptLock();
-  var gotLock = false;
-  try {
-    gotLock = lock.tryLock(10000);
-    if (!gotLock) {
-      return { success: false, error: 'सर्व्हर व्यस्त आहे, कृपया पुन्हा प्रयत्न करा.' };
-    }
-
-    // लॉक मिळाल्यावर पुन्हा एकदा डुप्लिकेट तपासणी (race condition साठी)
-    if (checkDuplicateToday(payload.district, payload.station, payload.date)) {
-      return {
-        success: false,
-        duplicateBlocked: true,
-        error: '⚠️ या स्थानकासाठी ' + payload.date + ' रोजी आधीच एक नोंद सबमिट झालेली आहे.\n\nएकाच दिवशी एकाच स्थानकासाठी दुसरी नोंद करण्याची परवानगी नाही.'
-      };
-    }
-
-    ensureResponsesSheet_();
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
-    var sheet = ss.getSheetByName(SHEET_RESPONSES);
-
-    var timestamp = Utilities.formatDate(new Date(), 'Asia/Kolkata', 'dd/MM/yyyy HH:mm:ss');
-    // 🛑 शीट रचना: [5 meta] + [32×3 RSE] + [32×2 LP] — दोन ब्लॉकमध्ये लिहा
-    var rseBlock = [];
-    var lpBlock = [];
-    var sufficientCount = 0, insufficientCount = 0, totalExtra = 0, applicableCount = 0;
-
-   for (var j = 0; j < payload.materials.length; j++) {
-      var mat = payload.materials[j];
-      if (!mat.applicable) {
-        rseBlock.push('N/A'); rseBlock.push('N/A'); rseBlock.push('');
-        lpBlock.push('N/A'); lpBlock.push('');
-        continue;
-      }
-      applicableCount++;
-      rseBlock.push(Number(mat.received));
-      rseBlock.push(mat.sufficient);
-      var extraVal = mat.sufficient === 'नाही' ? Number(mat.extra) : 0;
-      rseBlock.push(extraVal);
-      lpBlock.push('नाही'); lpBlock.push('');
-      if (mat.sufficient === 'होय') { sufficientCount++; }
-      else { insufficientCount++; totalExtra += extraVal; }
-    }
-    var row = [timestamp, payload.district, payload.station, payload.pm, payload.date]
-      .concat(rseBlock).concat(lpBlock);
-
-    sheet.appendRow(row);
-    touchConfigLastUpdated_();
-
-    return {
-      success: true,
-      summary: {
-        applicableCount: applicableCount,
-        sufficientCount: sufficientCount,
-        insufficientCount: insufficientCount,
-        totalExtra: totalExtra,
-        timestamp: timestamp
-      }
-    };
-  } catch (err) {
-    return { success: false, error: 'त्रुटी: ' + err.message };
-  } finally {
-    if (gotLock) lock.releaseLock();
-  }
-
-}
-
-
-/**
- * getMaterialMasterRows_ — 32 मटेरियल्सची मास्टर यादी परत करते.
- * [Sr.No, Material Name, Unit, Default Issued Qty]
- * Default Issued Qty रिकामी ठेवली आहे — PM डिप्लॉयच्या आधी भरतील.
- */
-function getMaterialMasterRows_() {
-  return [
-    [1, 'Step Ladder Aluminum', 'नग', ''],
-    [2, 'Pump Spray', 'नग', ''],
-    [3, 'Mask', 'नग', ''],
-    [4, 'Duster Full Size', 'पॅकेट(१ डजन)', ''],
-    [5, 'Bucket 20 Ltr.', 'नग', ''],
-    [6, 'Dust Pan', 'नग', ''],
-    [7, 'Odonil', 'नग', ''],
-    [8, 'Toilet Cleaner Liquid', 'कॅन(५ लि)', ''],
-    [9, 'Hard Broom', 'नग', ''],
-    [10, 'Bamboo', 'नग', ''],
-    [11, 'Soft Broom', 'नग', ''],
-    [12, 'Wet Mop Refill', 'नग', ''],
-    [13, 'Air Freshener', 'नग', ''],
-    [14, 'Dry Mop', 'नग', ''],
-    [15, 'Dry Mop Refill', 'नग', ''],
-    [16, 'Duster Yellow', 'पॅकेट(१ डजन)', ''],
-    [17, 'Garbage Bag', 'किलो', ''],
-    [18, 'Glass Cleaner Liquid (Colin)', 'कॅन(५ लि)', ''],
-    [19, 'Lyzol / Harpic Floor Cleaner', 'कॅन(५ लि)', ''],
-    [20, 'Naphthalene Balls', 'किलो', ''],
-    [21, 'Scotch Brite', 'नग', ''],
-    [22, 'Nirma', 'किलो', ''],
-    [23, 'Toilet Brush', 'नग', ''],
-    [24, 'Wet Mop', 'नग', ''],
-    [25, 'Wiper (Large)', 'नग', ''],
-    [26, 'Wiper (Small) Bus Washing', 'नग', ''],
-    [27, 'Machine Wash Shampoo', 'कॅन(५ लि)', ''],
-    [28, 'Hand Wash', 'कॅन(५ लि)', ''],
-    [29, 'Rubber Gloves', 'जोडी', ''],
-    [30, 'Phenyl', 'कॅन(५ लि)', ''],
-    [31, 'Acid', 'कॅन(५ लि)', ''],
-    [32, 'Bleaching Powder', 'किलो', '']
-  ];
-}
-
-/**
- * getPmDistrictStationRows_ — सर्व 340 [PM, District, Station] ओळी परत करते.
- */
-function getPmDistrictStationRows_() {
-  return [
-    ['Vinay Pahlajani', 'अकोला', 'अकोट'],
-    ['Vinay Pahlajani', 'अकोला', 'अकोला १'],
-    ['Vinay Pahlajani', 'अकोला', 'अकोला २'],
-    ['Vinay Pahlajani', 'अकोला', 'आंसिंग'],
-    ['Vinay Pahlajani', 'अकोला', 'कारंजा'],
-    ['Vinay Pahlajani', 'अकोला', 'तेल्हारा'],
-    ['Vinay Pahlajani', 'अकोला', 'पातूर'],
-    ['Vinay Pahlajani', 'अकोला', 'पोहरादेवी'],
-    ['Vinay Pahlajani', 'अकोला', 'बार्शी टाकळी'],
-    ['Vinay Pahlajani', 'अकोला', 'बाळापूर'],
-    ['Vinay Pahlajani', 'अकोला', 'बोरगाव मंजू'],
-    ['Vinay Pahlajani', 'अकोला', 'मंगरूळपीर'],
-    ['Vinay Pahlajani', 'अकोला', 'मानोरा'],
-    ['Vinay Pahlajani', 'अकोला', 'मालेगाव'],
-    ['Vinay Pahlajani', 'अकोला', 'मूर्तिजापूर'],
-    ['Vinay Pahlajani', 'अकोला', 'रिसोड'],
-    ['Vinay Pahlajani', 'अकोला', 'वाशिम'],
-    ['Vinay Pahlajani', 'अकोला', 'हिवरखेड'],
-    ['Vinay Pahlajani', 'अमरावती', 'अंजनगाव सुर्जी'],
-    ['Vinay Pahlajani', 'अमरावती', 'अमरावती १'],
-    ['Vinay Pahlajani', 'अमरावती', 'कुऱ्हा'],
-    ['Vinay Pahlajani', 'अमरावती', 'चांदूर बाजार'],
-    ['Vinay Pahlajani', 'अमरावती', 'चांदूर रेल्वे'],
-    ['Vinay Pahlajani', 'अमरावती', 'चिखलदरा'],
-    ['Vinay Pahlajani', 'अमरावती', 'तिवसा'],
-    ['Vinay Pahlajani', 'अमरावती', 'दर्यापूर'],
-    ['Vinay Pahlajani', 'अमरावती', 'धामणगाव रेल्वे'],
-    ['Vinay Pahlajani', 'अमरावती', 'धारणी'],
-    ['Vinay Pahlajani', 'अमरावती', 'परतवाडा/अचलपूर'],
-    ['Vinay Pahlajani', 'अमरावती', 'बडनेरा'],
-    ['Vinay Pahlajani', 'अमरावती', 'मोझरी'],
-    ['Vinay Pahlajani', 'अमरावती', 'मोर्शी'],
-    ['Vinay Pahlajani', 'अमरावती', 'राजापेठ'],
-    ['Vinay Pahlajani', 'अमरावती', 'वरूड'],
-    ['Vinay Pahlajani', 'अमरावती', 'वलगाव'],
-    ['Dashrath Palatwad', 'अहिल्यानगर', 'अकोले'],
-    ['Dashrath Palatwad', 'अहिल्यानगर', 'कर्जत'],
-    ['Dashrath Palatwad', 'अहिल्यानगर', 'कोपरगाव'],
-    ['Dashrath Palatwad', 'अहिल्यानगर', 'कोल्हार'],
-    ['Dashrath Palatwad', 'अहिल्यानगर', 'खर्डा'],
-    ['Dashrath Palatwad', 'अहिल्यानगर', 'जामखेड'],
-    ['Dashrath Palatwad', 'अहिल्यानगर', 'तारकपूर'],
-    ['Dashrath Palatwad', 'अहिल्यानगर', 'नेवासा'],
-    ['Dashrath Palatwad', 'अहिल्यानगर', 'पाथर्डी जुने'],
-    ['Dashrath Palatwad', 'अहिल्यानगर', 'पाथर्डी नवीन'],
-    ['Dashrath Palatwad', 'अहिल्यानगर', 'पारनेर'],
-    ['Dashrath Palatwad', 'अहिल्यानगर', 'बाभळेश्वर'],
-    ['Dashrath Palatwad', 'अहिल्यानगर', 'बेलापूर'],
-    ['Dashrath Palatwad', 'अहिल्यानगर', 'मिरजगाव'],
-    ['Dashrath Palatwad', 'अहिल्यानगर', 'राजूर'],
-    ['Dashrath Palatwad', 'अहिल्यानगर', 'राशीन'],
-    ['Dashrath Palatwad', 'अहिल्यानगर', 'राहाता'],
-    ['Dashrath Palatwad', 'अहिल्यानगर', 'राहुरी'],
-    ['Dashrath Palatwad', 'अहिल्यानगर', 'लोणी'],
-    ['Dashrath Palatwad', 'अहिल्यानगर', 'वांबोरी'],
-    ['Dashrath Palatwad', 'अहिल्यानगर', 'शिर्डी'],
-    ['Dashrath Palatwad', 'अहिल्यानगर', 'शेवगाव'],
-    ['Dashrath Palatwad', 'अहिल्यानगर', 'श्रीगोंदा'],
-    ['Dashrath Palatwad', 'अहिल्यानगर', 'श्रीरामपूर'],
-    ['Dashrath Palatwad', 'अहिल्यानगर', 'संगमनेर'],
-    ['Dashrath Palatwad', 'अहिल्यानगर', 'सुपा'],
-    ['Dashrath Palatwad', 'अहिल्यानगर', 'सोनई'],
-    ['Dashrath Palatwad', 'अहिल्यानगर', 'स्वस्तिक'],
-    ['Suyog Dixit', 'कोल्हापूर', 'आजरा'],
-    ['Suyog Dixit', 'कोल्हापूर', 'इचलकरंजी'],
-    ['Suyog Dixit', 'कोल्हापूर', 'कागल'],
-    ['Suyog Dixit', 'कोल्हापूर', 'कुरुंदवाड'],
-    ['Suyog Dixit', 'कोल्हापूर', 'कोडोली'],
-    ['Suyog Dixit', 'कोल्हापूर', 'कोल्हापूर मध्यवर्ती'],
-    ['Suyog Dixit', 'कोल्हापूर', 'गगनबावडा'],
-    ['Suyog Dixit', 'कोल्हापूर', 'गडहिंग्लज'],
-    ['Suyog Dixit', 'कोल्हापूर', 'गारगोटी'],
-    ['Suyog Dixit', 'कोल्हापूर', 'चंदगड'],
-    ['Suyog Dixit', 'कोल्हापूर', 'जोतिबा'],
-    ['Suyog Dixit', 'कोल्हापूर', 'नृसिंहवाडी'],
-    ['Suyog Dixit', 'कोल्हापूर', 'मलकापूर'],
-    ['Suyog Dixit', 'कोल्हापूर', 'मुरगूड'],
-    ['Suyog Dixit', 'कोल्हापूर', 'रंकाळा'],
-    ['Suyog Dixit', 'कोल्हापूर', 'राधानगरी'],
-    ['Suyog Dixit', 'कोल्हापूर', 'वडगाव'],
-    ['Suyog Dixit', 'कोल्हापूर', 'वाठार'],
-    ['Suyog Dixit', 'कोल्हापूर', 'शिरोळ'],
-    ['Suyog Dixit', 'कोल्हापूर', 'संभाजीनगर'],
-    ['Suyog Dixit', 'कोल्हापूर', 'हातकणंगले'],
-    ['Suyog Dixit', 'कोल्हापूर', 'हुपरी'],
-    ['Vinay Pahlajani', 'गडचिरोली', 'अहेरी'],
-    ['Vinay Pahlajani', 'गडचिरोली', 'आरमोरी'],
-    ['Vinay Pahlajani', 'गडचिरोली', 'आलापल्ली'],
-    ['Vinay Pahlajani', 'गडचिरोली', 'कुरखेडा'],
-    ['Vinay Pahlajani', 'गडचिरोली', 'गडचिरोली'],
-    ['Vinay Pahlajani', 'गडचिरोली', 'गोंडपिंपरी'],
-    ['Vinay Pahlajani', 'गडचिरोली', 'चामोर्शी'],
-    ['Vinay Pahlajani', 'गडचिरोली', 'तळोधी'],
-    ['Vinay Pahlajani', 'गडचिरोली', 'धानोरा'],
-    ['Vinay Pahlajani', 'गडचिरोली', 'नागभीड'],
-    ['Vinay Pahlajani', 'गडचिरोली', 'ब्रह्मपुरी'],
-    ['Vinay Pahlajani', 'गडचिरोली', 'वडसा'],
-    ['Vinay Pahlajani', 'गडचिरोली', 'सावली'],
-    ['Vinay Pahlajani', 'गडचिरोली', 'सिंदेवाही'],
-    ['Vinay Pahlajani', 'गडचिरोली', 'सिरोंचा'],
-    ['Vinay Pahlajani', 'चंद्रपूर', 'घुग्घूस'],
-    ['Vinay Pahlajani', 'चंद्रपूर', 'चंद्रपूर'],
-    ['Vinay Pahlajani', 'चंद्रपूर', 'चिमूर'],
-    ['Vinay Pahlajani', 'चंद्रपूर', 'बल्लारपूर'],
-    ['Vinay Pahlajani', 'चंद्रपूर', 'भद्रावती'],
-    ['Vinay Pahlajani', 'चंद्रपूर', 'मूल'],
-    ['Vinay Pahlajani', 'चंद्रपूर', 'राजुरा'],
-    ['Vinay Pahlajani', 'चंद्रपूर', 'वरोरा'],
-    ['Mandar Gaikwad', 'छ. संभाजीनगर', 'कन्नड'],
-    ['Mandar Gaikwad', 'छ. संभाजीनगर', 'गंगापूर'],
-    ['Mandar Gaikwad', 'छ. संभाजीनगर', 'चिंचोली'],
-    ['Mandar Gaikwad', 'छ. संभाजीनगर', 'छ.संभाजीनगर सिडको'],
-    ['Mandar Gaikwad', 'छ. संभाजीनगर', 'छ. संभाजीनगर मध्यवर्ती बस स्थानक'],
-    ['Mandar Gaikwad', 'छ. संभाजीनगर', 'पैठण'],
-    ['Mandar Gaikwad', 'छ. संभाजीनगर', 'फुलंब्री'],
-    ['Mandar Gaikwad', 'छ. संभाजीनगर', 'वैजापूर'],
-    ['Mandar Gaikwad', 'छ. संभाजीनगर', 'सिल्लोड'],
-    ['Mandar Gaikwad', 'छ. संभाजीनगर', 'सोयगाव'],
-    ['Dashrath Palatwad', 'जळगाव', 'अमळनेर'],
-    ['Dashrath Palatwad', 'जळगाव', 'एरंडोल'],
-    ['Dashrath Palatwad', 'जळगाव', 'चाळीसगाव'],
-    ['Dashrath Palatwad', 'जळगाव', 'चोपडा'],
-    ['Dashrath Palatwad', 'जळगाव', 'जळगाव नवीन'],
-    ['Dashrath Palatwad', 'जळगाव', 'जळगाव शहर'],
-    ['Dashrath Palatwad', 'जळगाव', 'जामनेर'],
-    ['Dashrath Palatwad', 'जळगाव', 'धरणगाव'],
-    ['Dashrath Palatwad', 'जळगाव', 'पाचोरा'],
-    ['Dashrath Palatwad', 'जळगाव', 'पारोळा'],
-    ['Dashrath Palatwad', 'जळगाव', 'पाळधी'],
-    ['Dashrath Palatwad', 'जळगाव', 'फैजपूर'],
-    ['Dashrath Palatwad', 'जळगाव', 'बोदवड'],
-    ['Dashrath Palatwad', 'जळगाव', 'भडगाव'],
-    ['Dashrath Palatwad', 'जळगाव', 'भुसावळ'],
-    ['Dashrath Palatwad', 'जळगाव', 'मुक्ताईनगर'],
-    ['Dashrath Palatwad', 'जळगाव', 'यावल'],
-    ['Dashrath Palatwad', 'जळगाव', 'रावेर'],
-    ['Dashrath Palatwad', 'जळगाव', 'सावदा'],
-    ['Dashrath Palatwad', 'जालना', 'अंबड'],
-    ['Dashrath Palatwad', 'जालना', 'आष्टी'],
-    ['Dashrath Palatwad', 'जालना', 'कुंभार पिंपळगाव'],
-    ['Dashrath Palatwad', 'जालना', 'घनसावंगी'],
-    ['Dashrath Palatwad', 'जालना', 'जाफराबाद'],
-    ['Dashrath Palatwad', 'जालना', 'जालना'],
-    ['Dashrath Palatwad', 'जालना', 'परतूर'],
-    ['Dashrath Palatwad', 'जालना', 'बदनापूर'],
-    ['Dashrath Palatwad', 'जालना', 'भोकरदन'],
-    ['Dashrath Palatwad', 'जालना', 'मंठा'],
-    ['Dashrath Palatwad', 'जालना', 'राजूर'],
-    ['Dashrath Palatwad', 'जालना', 'शहागड'],
-    ['Dayanand Palkar', 'ठाणे', 'कल्याण'],
-    ['Dayanand Palkar', 'ठाणे', 'खोपट'],
-    ['Dayanand Palkar', 'ठाणे', 'ठाणे रेल्वे स्थानक'],
-    ['Dayanand Palkar', 'ठाणे', 'ठाणे १'],
-    ['Dayanand Palkar', 'ठाणे', 'ठाणे २'],
-    ['Dayanand Palkar', 'ठाणे', 'बोरिवली नॅन्सी'],
-    ['Dayanand Palkar', 'ठाणे', 'बोरिवली सुकुरवाडी'],
-    ['Dayanand Palkar', 'ठाणे', 'भिवंडी'],
-    ['Dayanand Palkar', 'ठाणे', 'मुरबाड'],
-    ['Dayanand Palkar', 'ठाणे', 'वंदना'],
-    ['Dayanand Palkar', 'ठाणे', 'वाडा'],
-    ['Dayanand Palkar', 'ठाणे', 'विठ्ठलवाडी'],
-    ['Dayanand Palkar', 'ठाणे', 'शहापूर'],
-    ['Dashrath Palatwad', 'धाराशिव', 'अंदूर'],
-    ['Dashrath Palatwad', 'धाराशिव', 'उमरगा'],
-    ['Dashrath Palatwad', 'धाराशिव', 'कळंब'],
-    ['Dashrath Palatwad', 'धाराशिव', 'तुळजापूर'],
-    ['Dashrath Palatwad', 'धाराशिव', 'तुळजापूर जुने'],
-    ['Dashrath Palatwad', 'धाराशिव', 'तेर'],
-    ['Dashrath Palatwad', 'धाराशिव', 'धाराशिव'],
-    ['Dashrath Palatwad', 'धाराशिव', 'नळदुर्ग'],
-    ['Dashrath Palatwad', 'धाराशिव', 'परंडा'],
-    ['Dashrath Palatwad', 'धाराशिव', 'भूम'],
-    ['Dashrath Palatwad', 'धाराशिव', 'भूम जुने'],
-    ['Dashrath Palatwad', 'धाराशिव', 'मुरूम'],
-    ['Dashrath Palatwad', 'धाराशिव', 'येडशी'],
-    ['Dashrath Palatwad', 'धाराशिव', 'येणेगूर'],
-    ['Dashrath Palatwad', 'धाराशिव', 'येरमाळा'],
-    ['Dashrath Palatwad', 'धाराशिव', 'लोहारा'],
-    ['Dashrath Palatwad', 'धाराशिव', 'वाशी'],
-    ['Dashrath Palatwad', 'धाराशिव', 'शिराढोण'],
-    ['Dashrath Palatwad', 'धुळे', 'अक्कलकुवा'],
-    ['Dashrath Palatwad', 'धुळे', 'चिमठाणे'],
-    ['Dashrath Palatwad', 'धुळे', 'तळोदा'],
-    ['Dashrath Palatwad', 'धुळे', 'देवपूर'],
-    ['Dashrath Palatwad', 'धुळे', 'दोंडाईचा'],
-    ['Dashrath Palatwad', 'धुळे', 'धडगाव'],
-    ['Dashrath Palatwad', 'धुळे', 'धुळे'],
-    ['Dashrath Palatwad', 'धुळे', 'नंदुरबार'],
-    ['Dashrath Palatwad', 'धुळे', 'नवापूर'],
-    ['Dashrath Palatwad', 'धुळे', 'पिंपळनेर'],
-    ['Dashrath Palatwad', 'धुळे', 'शहादा'],
-    ['Dashrath Palatwad', 'धुळे', 'शिरपूर'],
-    ['Dashrath Palatwad', 'धुळे', 'साक्री'],
-    ['Dashrath Palatwad', 'धुळे', 'सिंदखेडा'],
-    ['Mandar Gaikwad', 'नांदेड', 'अर्धापूर'],
-    ['Mandar Gaikwad', 'नांदेड', 'उमरी'],
-    ['Mandar Gaikwad', 'नांदेड', 'कंधार'],
-    ['Mandar Gaikwad', 'नांदेड', 'किनवट'],
-    ['Mandar Gaikwad', 'नांदेड', 'कुंडलवाडी'],
-    ['Mandar Gaikwad', 'नांदेड', 'तामसा'],
-    ['Mandar Gaikwad', 'नांदेड', 'देगलूर जुने'],
-    ['Mandar Gaikwad', 'नांदेड', 'देगलूर नवीन'],
-    ['Mandar Gaikwad', 'नांदेड', 'धर्माबाद'],
-    ['Mandar Gaikwad', 'नांदेड', 'नरसी'],
-    ['Mandar Gaikwad', 'नांदेड', 'नांदेड मध्यवर्ती'],
-    ['Mandar Gaikwad', 'नांदेड', 'बरहाळी'],
-    ['Mandar Gaikwad', 'नांदेड', 'बारड'],
-    ['Mandar Gaikwad', 'नांदेड', 'बिलोली'],
-    ['Mandar Gaikwad', 'नांदेड', 'भोकर'],
-    ['Mandar Gaikwad', 'नांदेड', 'मांडवी'],
-    ['Mandar Gaikwad', 'नांदेड', 'माहूर'],
-    ['Mandar Gaikwad', 'नांदेड', 'मुखेड'],
-    ['Mandar Gaikwad', 'नांदेड', 'मुदखेड'],
-    ['Mandar Gaikwad', 'नांदेड', 'लोहा'],
-    ['Mandar Gaikwad', 'नांदेड', 'हदगाव'],
-    ['Vinay Pahlajani', 'नागपूर', 'इमामवाडा'],
-    ['Vinay Pahlajani', 'नागपूर', 'उमरेड'],
-    ['Vinay Pahlajani', 'नागपूर', 'कमलेश्वर'],
-    ['Vinay Pahlajani', 'नागपूर', 'कटोल'],
-    ['Vinay Pahlajani', 'नागपूर', 'कामठी'],
-    ['Vinay Pahlajani', 'नागपूर', 'कुही'],
-    ['Vinay Pahlajani', 'नागपूर', 'कोंढाळी'],
-    ['Vinay Pahlajani', 'नागपूर', 'खापा'],
-    ['Vinay Pahlajani', 'नागपूर', 'गणेशपेठ'],
-    ['Vinay Pahlajani', 'नागपूर', 'घाटरोड'],
-    ['Vinay Pahlajani', 'नागपूर', 'जलालखेडा'],
-    ['Vinay Pahlajani', 'नागपूर', 'धापेवाडा'],
-    ['Vinay Pahlajani', 'नागपूर', 'नरखेड'],
-    ['Vinay Pahlajani', 'नागपूर', 'पारशिवनी'],
-    ['Vinay Pahlajani', 'नागपूर', 'बुटीबोरी (एमआयडीसी)'],
-    ['Vinay Pahlajani', 'नागपूर', 'मोरभवन'],
-    ['Vinay Pahlajani', 'नागपूर', 'मोवाड'],
-    ['Vinay Pahlajani', 'नागपूर', 'मोहपा'],
-    ['Vinay Pahlajani', 'नागपूर', 'मौदा'],
-    ['Vinay Pahlajani', 'नागपूर', 'राजभवन'],
-    ['Vinay Pahlajani', 'नागपूर', 'रामटेक'],
-    ['Vinay Pahlajani', 'नागपूर', 'वर्धमान नगर'],
-    ['Vinay Pahlajani', 'नागपूर', 'सावनेर'],
-    ['Vinay Pahlajani', 'नागपूर', 'हिंगणा'],
-    ['Mandar Gaikwad', 'नाशिक', 'इगतपुरी'],
-    ['Mandar Gaikwad', 'नाशिक', 'कळवण'],
-    ['Mandar Gaikwad', 'नाशिक', 'घोटी'],
-    ['Mandar Gaikwad', 'नाशिक', 'चांदवड'],
-    ['Mandar Gaikwad', 'नाशिक', 'जुने ओझर'],
-    ['Mandar Gaikwad', 'नाशिक', 'ताहाराबाद'],
-    ['Mandar Gaikwad', 'नाशिक', 'त्र्यंबकेश्वर जुने'],
-    ['Mandar Gaikwad', 'नाशिक', 'देवळा'],
-    ['Mandar Gaikwad', 'नाशिक', 'नवीन ओझर'],
-    ['Mandar Gaikwad', 'नाशिक', 'नांदगाव'],
-    ['Mandar Gaikwad', 'नाशिक', 'नामपूर'],
-    ['Mandar Gaikwad', 'नाशिक', 'नाशिक नवीन मध्यवर्ती'],
-    ['Mandar Gaikwad', 'नाशिक', 'नाशिक महामार्ग'],
-    ['Mandar Gaikwad', 'नाशिक', 'नाशिक मेळा'],
-    ['Mandar Gaikwad', 'नाशिक', 'नाशिक रोड'],
-    ['Mandar Gaikwad', 'नाशिक', 'नाशिक १'],
-    ['Mandar Gaikwad', 'नाशिक', 'नाशिक २'],
-    ['Mandar Gaikwad', 'नाशिक', 'निफाड'],
-    ['Mandar Gaikwad', 'नाशिक', 'पिंपळगाव'],
-    ['Mandar Gaikwad', 'नाशिक', 'पेठ'],
-    ['Mandar Gaikwad', 'नाशिक', 'भगूर'],
-    ['Mandar Gaikwad', 'नाशिक', 'मालेगाव जुने'],
-    ['Mandar Gaikwad', 'नाशिक', 'येवला'],
-    ['Mandar Gaikwad', 'नाशिक', 'लासलगाव'],
-    ['Mandar Gaikwad', 'नाशिक', 'वणी'],
-    ['Mandar Gaikwad', 'नाशिक', 'वावी'],
-    ['Mandar Gaikwad', 'नाशिक', 'विंचूर'],
-    ['Mandar Gaikwad', 'नाशिक', 'सटाणा'],
-    ['Mandar Gaikwad', 'नाशिक', 'सातपूर'],
-    ['Mandar Gaikwad', 'नाशिक', 'सिन्नर'],
-    ['Dashrath Palatwad', 'परभणी', 'आ. बाळापूर'],
-    ['Dashrath Palatwad', 'परभणी', 'औंढा'],
-    ['Dashrath Palatwad', 'परभणी', 'कळमनुरी'],
-    ['Dashrath Palatwad', 'परभणी', 'गंगाखेड'],
-    ['Dashrath Palatwad', 'परभणी', 'जिंतूर'],
-    ['Dashrath Palatwad', 'परभणी', 'परभणी'],
-    ['Dashrath Palatwad', 'परभणी', 'पाथरी'],
-    ['Dashrath Palatwad', 'परभणी', 'मानवत'],
-    ['Dashrath Palatwad', 'परभणी', 'वसमत'],
-    ['Dashrath Palatwad', 'परभणी', 'वारंगा फाटा'],
-    ['Dashrath Palatwad', 'परभणी', 'सेनगाव'],
-    ['Dashrath Palatwad', 'परभणी', 'सेलू'],
-    ['Dashrath Palatwad', 'परभणी', 'सोनपेठ'],
-    ['Dashrath Palatwad', 'परभणी', 'हिंगोली'],
-    ['Dayanand Palkar', 'पालघर', 'अर्नाळा'],
-    ['Dayanand Palkar', 'पालघर', 'गणेशपुरी'],
-    ['Dayanand Palkar', 'पालघर', 'जव्हार'],
-    ['Dayanand Palkar', 'पालघर', 'डहाणू'],
-    ['Dayanand Palkar', 'पालघर', 'तलासरी'],
-    ['Dayanand Palkar', 'पालघर', 'नवघर'],
-    ['Dayanand Palkar', 'पालघर', 'नालासोपारा'],
-    ['Dayanand Palkar', 'पालघर', 'पालघर'],
-    ['Dayanand Palkar', 'पालघर', 'बोईसर'],
-    ['Dayanand Palkar', 'पालघर', 'वज्रेश्वरी'],
-    ['Dayanand Palkar', 'पालघर', 'वसई'],
-    ['Dayanand Palkar', 'पालघर', 'विरार'],
-    ['Dayanand Palkar', 'पालघर', 'सफाळे'],
-    ['Sagar Bora', 'पुणे', 'आळेफाटा'],
-    ['Sagar Bora', 'पुणे', 'इंदापूर'],
-    ['Sagar Bora', 'पुणे', 'ओतूर'],
-    ['Sagar Bora', 'पुणे', 'घोडेगाव'],
-    ['Sagar Bora', 'पुणे', 'चाकण'],
-    ['Sagar Bora', 'पुणे', 'जुन्नर'],
-    ['Sagar Bora', 'पुणे', 'तळेगाव'],
-    ['Sagar Bora', 'पुणे', 'दौंड'],
-    ['Sagar Bora', 'पुणे', 'नारायणगाव'],
-    ['Sagar Bora', 'पुणे', 'नीरा'],
-    ['Sagar Bora', 'पुणे', 'न्हावरा'],
-    ['Sagar Bora', 'पुणे', 'पांडरे'],
-    ['Sagar Bora', 'पुणे', 'पिंपरी चिंचवड'],
-    ['Sagar Bora', 'पुणे', 'पुणे स्टेशन'],
-    ['Sagar Bora', 'पुणे', 'पौड'],
-    ['Sagar Bora', 'पुणे', 'बारामती'],
-    ['Sagar Bora', 'पुणे', 'वेल्हा'],
-    ['Sagar Bora', 'पुणे', 'भिगवण'],
-    ['Sagar Bora', 'पुणे', 'भोर'],
-    ['Sagar Bora', 'पुणे', 'मंचर'],
-    ['Sagar Bora', 'पुणे', 'मालेगाव'],
-    ['Sagar Bora', 'पुणे', 'मोरगाव'],
-    ['Sagar Bora', 'पुणे', 'राजगुरुनगर'],
-    ['Sagar Bora', 'पुणे', 'लोणावळा'],
-    ['Sagar Bora', 'पुणे', 'वडगाव निंबाळकर'],
-    ['Sagar Bora', 'पुणे', 'वालचंदनगर'],
-    ['Sagar Bora', 'पुणे', 'शिक्रापूर'],
-    ['Sagar Bora', 'पुणे', 'शिरूर'],
-    ['Sagar Bora', 'पुणे', 'शिवाजीनगर'],
-    ['Sagar Bora', 'पुणे', 'सासवड'],
-    ['Sagar Bora', 'पुणे', 'सुपा'],
-    ['Sagar Bora', 'पुणे', 'स्वारगेट'],
-    ['Dashrath Palatwad', 'बीड', 'अंबेजोगाई'],
-    ['Dashrath Palatwad', 'बीड', 'आष्टी'],
-    ['Dashrath Palatwad', 'बीड', 'कडा'],
-    ['Dashrath Palatwad', 'बीड', 'केज'],
-    ['Dashrath Palatwad', 'बीड', 'गेवराई'],
-    ['Dashrath Palatwad', 'बीड', 'घाटनांदूर'],
-    ['Dashrath Palatwad', 'बीड', 'तळवाडा'],
-    ['Dashrath Palatwad', 'बीड', 'तेलगाव'],
-    ['Dashrath Palatwad', 'बीड', 'धारूर'],
-    ['Dashrath Palatwad', 'बीड', 'नेकनूर'],
-    ['Dashrath Palatwad', 'बीड', 'परळी'],
-    ['Dashrath Palatwad', 'बीड', 'पाटोदा'],
-    ['Dashrath Palatwad', 'बीड', 'बीड'],
-    ['Dashrath Palatwad', 'बीड', 'माजलगाव'],
-    ['Vinay Pahlajani', 'बुलढाणा', 'आमडापूर'],
-    ['Vinay Pahlajani', 'बुलढाणा', 'खामगाव'],
-    ['Vinay Pahlajani', 'बुलढाणा', 'चिखली'],
-    ['Vinay Pahlajani', 'बुलढाणा', 'जळगाव जामोद'],
-    ['Vinay Pahlajani', 'बुलढाणा', 'देऊळगाव राजा'],
-    ['Vinay Pahlajani', 'बुलढाणा', 'धाड'],
-    ['Vinay Pahlajani', 'बुलढाणा', 'नांदुरा'],
-    ['Vinay Pahlajani', 'बुलढाणा', 'बुलढाणा'],
-    ['Vinay Pahlajani', 'बुलढाणा', 'मलकापूर'],
-    ['Vinay Pahlajani', 'बुलढाणा', 'मेहकर'],
-    ['Vinay Pahlajani', 'बुलढाणा', 'मोताळा'],
-    ['Vinay Pahlajani', 'बुलढाणा', 'लोणार'],
-    ['Vinay Pahlajani', 'बुलढाणा', 'शेगाव'],
-    ['Vinay Pahlajani', 'बुलढाणा', 'सिंदखेडराजा'],
-    ['Vinay Pahlajani', 'भंडारा', 'आमगाव'],
-    ['Vinay Pahlajani', 'भंडारा', 'गोंदिया'],
-    ['Vinay Pahlajani', 'भंडारा', 'गोरेगाव'],
-    ['Vinay Pahlajani', 'भंडारा', 'तिरोडा'],
-    ['Vinay Pahlajani', 'भंडारा', 'तुमसर'],
-    ['Vinay Pahlajani', 'भंडारा', 'देवरी'],
-    ['Vinay Pahlajani', 'भंडारा', 'पवनी'],
-    ['Vinay Pahlajani', 'भंडारा', 'भंडारा'],
-    ['Vinay Pahlajani', 'भंडारा', 'मोरगाव अर्जुनी'],
-    ['Vinay Pahlajani', 'भंडारा', 'मोहाडी'],
-    ['Vinay Pahlajani', 'भंडारा', 'लाखनी'],
-    ['Vinay Pahlajani', 'भंडारा', 'लाखांदूर'],
-    ['Vinay Pahlajani', 'भंडारा', 'साकोली'],
-    ['Dayanand Palkar', 'मुंबई', 'उरण'],
-    ['Dayanand Palkar', 'मुंबई', 'कुर्ला नेहरूनगर'],
-    ['Dayanand Palkar', 'मुंबई', 'पनवेल'],
-    ['Dayanand Palkar', 'मुंबई', 'परेल'],
-    ['Dayanand Palkar', 'मुंबई', 'मुंबई सेंट्रल'],
-    ['Vinay Pahlajani', 'यवतमाळ', 'आर्णी'],
-    ['Vinay Pahlajani', 'यवतमाळ', 'उमरखेड'],
-    ['Vinay Pahlajani', 'यवतमाळ', 'कळंब'],
-    ['Vinay Pahlajani', 'यवतमाळ', 'घाटंजी'],
-    ['Vinay Pahlajani', 'यवतमाळ', 'दारव्हा'],
-    ['Vinay Pahlajani', 'यवतमाळ', 'दिग्रस'],
-    ['Vinay Pahlajani', 'यवतमाळ', 'धानकी'],
-    ['Vinay Pahlajani', 'यवतमाळ', 'नेर'],
-    ['Vinay Pahlajani', 'यवतमाळ', 'पांढरकवडा'],
-    ['Vinay Pahlajani', 'यवतमाळ', 'पारवा'],
-    ['Vinay Pahlajani', 'यवतमाळ', 'पुसद'],
-    ['Vinay Pahlajani', 'यवतमाळ', 'बाभूळगाव'],
-    ['Vinay Pahlajani', 'यवतमाळ', 'महागाव'],
-    ['Vinay Pahlajani', 'यवतमाळ', 'यवतमाळ'],
-    ['Vinay Pahlajani', 'यवतमाळ', 'राळेगाव'],
-    ['Vinay Pahlajani', 'यवतमाळ', 'लाडखेड'],
-    ['Vinay Pahlajani', 'यवतमाळ', 'लोही'],
-    ['Vinay Pahlajani', 'यवतमाळ', 'वणी'],
-    ['Vinay Pahlajani', 'यवतमाळ', 'शेंबाळपिंपरी'],
-    ['Vinay Pahlajani', 'यवतमाळ', 'सडोबा सावली'],
-    ['Suyog Dixit', 'रत्नागिरी', 'खेड'],
-    ['Suyog Dixit', 'रत्नागिरी', 'गणपतीपुळे'],
-    ['Suyog Dixit', 'रत्नागिरी', 'गुहागर'],
-    ['Suyog Dixit', 'रत्नागिरी', 'चिपळूण मध्यवर्ती'],
-    ['Suyog Dixit', 'रत्नागिरी', 'चिपळूण शिवाजीनगर'],
-    ['Suyog Dixit', 'रत्नागिरी', 'दापोली'],
-    ['Suyog Dixit', 'रत्नागिरी', 'देवरुख'],
-    ['Suyog Dixit', 'रत्नागिरी', 'पाली'],
-    ['Suyog Dixit', 'रत्नागिरी', 'पावस'],
-    ['Suyog Dixit', 'रत्नागिरी', 'मंडणगड'],
-    ['Suyog Dixit', 'रत्नागिरी', 'माखजन'],
-    ['Suyog Dixit', 'रत्नागिरी', 'रत्नागिरी जिल्हाधिकारी कार्यालय'],
-    ['Suyog Dixit', 'रत्नागिरी', 'रत्नागिरी मध्यवर्ती'],
-    ['Suyog Dixit', 'रत्नागिरी', 'रहाटघर'],
-    ['Suyog Dixit', 'रत्नागिरी', 'राजापूर'],
-    ['Suyog Dixit', 'रत्नागिरी', 'लांजा'],
-    ['Suyog Dixit', 'रत्नागिरी', 'संगमेश्वर'],
-    ['Suyog Dixit', 'रत्नागिरी', 'साखरपा'],
-    ['Suyog Dixit', 'रत्नागिरी', 'हरणे स्टँड'],
-    ['Suyog Dixit', 'रायगड', 'अलिबाग'],
-    ['Suyog Dixit', 'रायगड', 'आंबेत'],
-    ['Suyog Dixit', 'रायगड', 'इंदापूर'],
-    ['Suyog Dixit', 'रायगड', 'कर्जत'],
-    ['Suyog Dixit', 'रायगड', 'ताला'],
-    ['Suyog Dixit', 'रायगड', 'नागोठणे'],
-    ['Suyog Dixit', 'रायगड', 'पाली'],
-    ['Suyog Dixit', 'रायगड', 'पेण'],
-    ['Suyog Dixit', 'रायगड', 'पोलादपूर'],
-    ['Suyog Dixit', 'रायगड', 'महाड'],
-    ['Suyog Dixit', 'रायगड', 'माणगाव'],
-    ['Suyog Dixit', 'रायगड', 'मुरूड'],
-    ['Suyog Dixit', 'रायगड', 'रामवाडी'],
-    ['Suyog Dixit', 'रायगड', 'रेवदंडा'],
-    ['Suyog Dixit', 'रायगड', 'रोहा'],
-    ['Suyog Dixit', 'रायगड', 'वडखळ'],
-    ['Suyog Dixit', 'रायगड', 'श्रीवर्धन'],
-    ['Mandar Gaikwad', 'लातूर', 'अहमदपूर'],
-    ['Mandar Gaikwad', 'लातूर', 'उदगीर'],
-    ['Mandar Gaikwad', 'लातूर', 'औसा जुने'],
-    ['Mandar Gaikwad', 'लातूर', 'औसा नवीन'],
-    ['Mandar Gaikwad', 'लातूर', 'कासार शिरशी'],
-    ['Mandar Gaikwad', 'लातूर', 'किनगाव'],
-    ['Mandar Gaikwad', 'लातूर', 'चाकूर'],
-    ['Mandar Gaikwad', 'लातूर', 'तांदुळजा'],
-    ['Mandar Gaikwad', 'लातूर', 'देवणी'],
-    ['Mandar Gaikwad', 'लातूर', 'नळेगाव'],
-    ['Mandar Gaikwad', 'लातूर', 'निलंगा'],
-    ['Mandar Gaikwad', 'लातूर', 'पानगाव'],
-    ['Mandar Gaikwad', 'लातूर', 'मुरूड'],
-    ['Mandar Gaikwad', 'लातूर', 'रेणापूर'],
-    ['Mandar Gaikwad', 'लातूर', 'लातूर बस स्थानक २'],
-    ['Mandar Gaikwad', 'लातूर', 'लातूर मध्यवर्ती'],
-    ['Mandar Gaikwad', 'लातूर', 'लातूर रेल्वे'],
-    ['Mandar Gaikwad', 'लातूर', 'लामजना'],
-    ['Mandar Gaikwad', 'लातूर', 'शिरूर अनंतपाळ'],
-    ['Mandar Gaikwad', 'लातूर', 'हाळी हंडरगुळी'],
-    ['Vinay Pahlajani', 'वर्धा', 'आर्वी'],
-    ['Vinay Pahlajani', 'वर्धा', 'आष्टी'],
-    ['Vinay Pahlajani', 'वर्धा', 'कारंजा'],
-    ['Vinay Pahlajani', 'वर्धा', 'जाम'],
-    ['Vinay Pahlajani', 'वर्धा', 'तळेगाव'],
-    ['Vinay Pahlajani', 'वर्धा', 'देवळी'],
-    ['Vinay Pahlajani', 'वर्धा', 'पुलगाव'],
-    ['Vinay Pahlajani', 'वर्धा', 'वर्धा'],
-    ['Vinay Pahlajani', 'वर्धा', 'समुद्रपूर'],
-    ['Vinay Pahlajani', 'वर्धा', 'सिंदी रेल्वे'],
-    ['Vinay Pahlajani', 'वर्धा', 'सेलू'],
-    ['Vinay Pahlajani', 'वर्धा', 'सेवाग्राम'],
-    ['Vinay Pahlajani', 'वर्धा', 'हिंगणघाट'],
-    ['Dayanand Palkar', 'सांगली', 'आटपाडी'],
-    ['Dayanand Palkar', 'सांगली', 'आष्टा'],
-    ['Dayanand Palkar', 'सांगली', 'इस्लामपूर'],
-    ['Dayanand Palkar', 'सांगली', 'कडेगाव'],
-    ['Dayanand Palkar', 'सांगली', 'कडेपूर'],
-    ['Dayanand Palkar', 'सांगली', 'कवठेमहांकाळ'],
-    ['Dayanand Palkar', 'सांगली', 'कासेगाव'],
-    ['Dayanand Palkar', 'सांगली', 'कुंडल'],
-    ['Dayanand Palkar', 'सांगली', 'कोकरूड'],
-    ['Dayanand Palkar', 'सांगली', 'खरसुंडी'],
-    ['Dayanand Palkar', 'सांगली', 'खानापूर'],
-    ['Dayanand Palkar', 'सांगली', 'जत'],
-    ['Dayanand Palkar', 'सांगली', 'तासगाव'],
-    ['Dayanand Palkar', 'सांगली', 'पलूस'],
-    ['Dayanand Palkar', 'सांगली', 'मिरज शहर'],
-    ['Dayanand Palkar', 'सांगली', 'विटा'],
-    ['Dayanand Palkar', 'सांगली', 'शिराळा'],
-    ['Dayanand Palkar', 'सांगली', 'सांगली'],
-    ['Sagar Bora', 'सातारा', 'अतीत'],
-    ['Sagar Bora', 'सातारा', 'उंब्रज'],
-    ['Sagar Bora', 'सातारा', 'औंध'],
-    ['Sagar Bora', 'सातारा', 'कराड'],
-    // ['Sagar Bora', 'सातारा', 'कलेढोण'],
-    ['Sagar Bora', 'सातारा', 'काशीळ'],
-    ['Sagar Bora', 'सातारा', 'कोरेगाव'],
-    ['Sagar Bora', 'सातारा', 'ढेबेवाडी'],
-    ['Sagar Bora', 'सातारा', 'तारळे'],
-    ['Sagar Bora', 'सातारा', 'दहिवडी'],
-    ['Sagar Bora', 'सातारा', 'पा. खंडाळा'],
-    ['Sagar Bora', 'सातारा', 'पाचगणी'],
-    ['Sagar Bora', 'सातारा', 'पाचवड'],
-    ['Sagar Bora', 'सातारा', 'पाटण'],
-    // ['Sagar Bora', 'सातारा', 'पुसेगाव'],
-    ['Sagar Bora', 'सातारा', 'पुसेसावळी'],
-    ['Sagar Bora', 'सातारा', 'फलटण'],
-    // ['Sagar Bora', 'सातारा', 'बावधन'],
-    ['Sagar Bora', 'सातारा', 'भुईंज'],
-    ['Sagar Bora', 'सातारा', 'मसूर'],
-    ['Sagar Bora', 'सातारा', 'महाबळेश्वर'],
-    ['Sagar Bora', 'सातारा', 'मायणी'],
-    ['Sagar Bora', 'सातारा', 'मेढा'],
-    ['Sagar Bora', 'सातारा', 'म्हसवड'],
-    ['Sagar Bora', 'सातारा', 'रहिमतपूर'],
-    ['Sagar Bora', 'सातारा', 'राजवाडा'],
-    ['Sagar Bora', 'सातारा', 'वडूज'],
-    ['Sagar Bora', 'सातारा', 'वाई'],
-    ['Sagar Bora', 'सातारा', 'शिंगणापूर'],
-    ['Sagar Bora', 'सातारा', 'शिरवळ'],
-    ['Sagar Bora', 'सातारा', 'सातारा'],
-    ['Suyog Dixit', 'सिंधुदुर्ग', 'आंबोली'],
-    ['Suyog Dixit', 'सिंधुदुर्ग', 'ओरोस'],
-    ['Suyog Dixit', 'सिंधुदुर्ग', 'कणकवली'],
-    ['Suyog Dixit', 'सिंधुदुर्ग', 'कासल'],
-    ['Suyog Dixit', 'सिंधुदुर्ग', 'कुडाळ महामार्ग'],
-    ['Suyog Dixit', 'सिंधुदुर्ग', 'कुडाळ शहर'],
-    ['Suyog Dixit', 'सिंधुदुर्ग', 'खारेपाटण'],
-    ['Suyog Dixit', 'सिंधुदुर्ग', 'तराळ'],
-    ['Suyog Dixit', 'सिंधुदुर्ग', 'देवगड'],
-    ['Suyog Dixit', 'सिंधुदुर्ग', 'दोडामार्ग'],
-    ['Suyog Dixit', 'सिंधुदुर्ग', 'फोंडाघाट'],
-    ['Suyog Dixit', 'सिंधुदुर्ग', 'बांदा'],
-    ['Suyog Dixit', 'सिंधुदुर्ग', 'बेतीम (पणजी)'],
-    ['Suyog Dixit', 'सिंधुदुर्ग', 'मालवण'],
-    ['Suyog Dixit', 'सिंधुदुर्ग', 'विजयदुर्ग'],
-    ['Suyog Dixit', 'सिंधुदुर्ग', 'वेंगुर्ला'],
-    ['Suyog Dixit', 'सिंधुदुर्ग', 'वैभववाडी'],
-    ['Suyog Dixit', 'सिंधुदुर्ग', 'शिरोडा'],
-    ['Suyog Dixit', 'सिंधुदुर्ग', 'सावंतवाडी'],
-    ['Suyog Dixit', 'सिंधुदुर्ग', 'सिंधुदुर्ग जिल्हाधिकारी कार्यालय'],
-    ['Sagar Bora', 'सोलापूर', 'अकलूज जुने'],
-    ['Sagar Bora', 'सोलापूर', 'अकलूज नवीन'],
-    ['Sagar Bora', 'सोलापूर', 'अक्कलकोट'],
-    ['Sagar Bora', 'सोलापूर', 'करमाळा'],
-    ['Sagar Bora', 'सोलापूर', 'कुमठा नाका'],
-    ['Sagar Bora', 'सोलापूर', 'कुर्डुवाडी'],
-    ['Sagar Bora', 'सोलापूर', 'जेऊर'],
-    ['Sagar Bora', 'सोलापूर', 'टेंभुर्णी'],
-    ['Sagar Bora', 'सोलापूर', 'नातेपुते'],
-    ['Sagar Bora', 'सोलापूर', 'पंढरपूर जुने'],
-    ['Sagar Bora', 'सोलापूर', 'पंढरपूर नवीन'],
-    ['Sagar Bora', 'सोलापूर', 'बार्शी'],
-    ['Sagar Bora', 'सोलापूर', 'मंगळवेढा'],
-    ['Sagar Bora', 'सोलापूर', 'माढा'],
-    ['Sagar Bora', 'सोलापूर', 'माळशिरस'],
-    ['Sagar Bora', 'सोलापूर', 'मोडनिंब'],
-    ['Sagar Bora', 'सोलापूर', 'मोहोळ'],
-    ['Sagar Bora', 'सोलापूर', 'वाघदरी'],
-    ['Sagar Bora', 'सोलापूर', 'वैराग'],
-    ['Sagar Bora', 'सोलापूर', 'संगोला'],
-    ['Sagar Bora', 'सोलापूर', 'सोलापूर']
   ];
 }
