@@ -170,7 +170,7 @@ function touchConfigLastUpdated_() {
 function _cleanStr(str) {
   var s = String(str || '');
   try { s = s.normalize('NFC'); } catch (e) {}
-  return s.replace(/[\s ​‌‍﻿ -‏    　]+/g, ' ').trim();
+  return s.replace(/[\s\u00A0\u200B\u200C\u200D\uFEFF\u2000-\u200F\u2028\u2029\u202F\u205F\u3000]+/g, ' ').trim();
 }
 
 function _normDateForComp(val) {
